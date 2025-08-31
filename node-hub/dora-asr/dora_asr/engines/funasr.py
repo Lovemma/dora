@@ -56,15 +56,40 @@ class FunASREngine(ASRInterface):
             print("Please download from: https://modelscope.cn/models/damo/speech_seaco_paraformer_large")
             raise FileNotFoundError(f"ASR model not found: {asr_model_path}")
         
+        # Determine device ID based on configuration
+        device_id = "-1"  # Default to CPU
+        if self.config.USE_GPU:
+            try:
+                import onnxruntime as ort
+                providers = ort.get_available_providers()
+                if 'CUDAExecutionProvider' in providers:
+                    device_id = "0"  # Use first GPU
+                    print("GPU detected, using CUDA for inference")
+                elif 'CoreMLExecutionProvider' in providers:
+                    # CoreML is available on macOS but FunASR may not support it directly
+                    print("CoreML available but using CPU for FunASR")
+                else:
+                    print("No GPU available, using CPU")
+            except ImportError:
+                print("ONNX Runtime not available for GPU detection")
+        
         try:
-            # Load ASR model
-            print(f"Loading ASR model: {asr_model_name}")
-            self.asr_model = SeacoParaformer(str(asr_model_path), quantize=True)
+            # Load ASR model with device configuration
+            print(f"Loading ASR model: {asr_model_name} (device_id={device_id})")
+            self.asr_model = SeacoParaformer(
+                str(asr_model_path), 
+                quantize=True,
+                device_id=device_id
+            )
             
             # Load punctuation model if enabled
             if self.config.ENABLE_PUNCTUATION and punc_model_path.exists():
                 print(f"Loading punctuation model: {punc_model_name}")
-                self.punc_model = CT_Transformer(str(punc_model_path), quantize=True)
+                self.punc_model = CT_Transformer(
+                    str(punc_model_path), 
+                    quantize=True,
+                    device_id=device_id
+                )
             else:
                 print("Punctuation model disabled or not found")
                 self.punc_model = None
