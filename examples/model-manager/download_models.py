@@ -36,16 +36,194 @@ except ImportError:
     from huggingface_hub.utils import RepositoryNotFoundError
     HF_AVAILABLE = True
 
-# Try to import PrimeSpeech modules (optional)
-try:
-    # Add parent directory to path to import dora_primespeech
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from dora_primespeech.config import PrimeSpeechConfig, VOICE_CONFIGS
-    from dora_primespeech.model_manager import ModelManager
-    PRIMESPEECH_AVAILABLE = True
-except ImportError:
-    PRIMESPEECH_AVAILABLE = False
-    print("Note: PrimeSpeech modules not found. PrimeSpeech-specific features disabled.")
+# Define voice configurations directly (no dependency on PrimeSpeech)
+VOICE_CONFIGS = {
+    "Doubao": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Doubao_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Doubao_models/s2G488k.pth",
+        "reference_audio": "Doubao_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Luo Xiang": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Luo_Xiang_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Luo_Xiang_models/s2G488k.pth",
+        "reference_audio": "Luo_Xiang_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Yang Mi": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Yang_Mi_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Yang_Mi_models/s2G488k.pth",
+        "reference_audio": "Yang_Mi_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Zhou Jielun": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Zhou_Jielun_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Zhou_Jielun_models/s2G488k.pth",
+        "reference_audio": "Zhou_Jielun_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Ma Yun": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Ma_Yun_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Ma_Yun_models/s2G488k.pth",
+        "reference_audio": "Ma_Yun_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Maple": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Maple_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Maple_models/s2G488k.pth",
+        "reference_audio": "Maple_models/ref_audio.wav",
+        "text_lang": "en"
+    },
+    "Cove": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Cove_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Cove_models/s2G488k.pth",
+        "reference_audio": "Cove_models/ref_audio.wav",
+        "text_lang": "en"
+    },
+    "BYS": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "BYS_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "BYS_models/s2G488k.pth",
+        "reference_audio": "BYS_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Ellen": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Ellen_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Ellen_models/s2G488k.pth",
+        "reference_audio": "Ellen_models/ref_audio.wav",
+        "text_lang": "en"
+    },
+    "Juniper": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Juniper_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Juniper_models/s2G488k.pth",
+        "reference_audio": "Juniper_models/ref_audio.wav",
+        "text_lang": "en"
+    },
+    "Ma Baoguo": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Ma_Baoguo_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Ma_Baoguo_models/s2G488k.pth",
+        "reference_audio": "Ma_Baoguo_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Shen Yi": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Shen_Yi_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Shen_Yi_models/s2G488k.pth",
+        "reference_audio": "Shen_Yi_models/ref_audio.wav",
+        "text_lang": "zh"
+    },
+    "Trump": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "Trump_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "sovits_weights": "Trump_models/s2G488k.pth",
+        "reference_audio": "Trump_models/ref_audio.wav",
+        "text_lang": "en"
+    }
+}
+
+# Standalone helper functions for PrimeSpeech models
+def get_primespeech_models_dir():
+    """Get the PrimeSpeech models directory."""
+    primespeech_model_dir = os.getenv("PRIMESPEECH_MODEL_DIR")
+    if primespeech_model_dir:
+        return Path(primespeech_model_dir)
+    else:
+        return Path.home() / ".dora" / "models" / "primespeech"
+
+def check_voice_downloaded(voice_name: str, models_dir: Path) -> tuple[bool, float]:
+    """Check if a voice is downloaded and get its size.
+    
+    Returns:
+        (is_downloaded, size_in_mb)
+    """
+    if voice_name not in VOICE_CONFIGS:
+        return False, 0
+    
+    # Check using simplified naming convention
+    voice_lower = voice_name.lower().replace(" ", "").replace("_", "")
+    
+    # Check in the directory structure used by the actual downloads
+    gpt_weights_dir = models_dir / "moyoyo" / "GPT_weights"
+    sovits_weights_dir = models_dir / "moyoyo" / "SoVITS_weights"
+    ref_audio_dir = models_dir / "moyoyo" / "ref_audios"
+    
+    # Look for files with the voice name
+    gpt_file = None
+    sovits_file = None
+    ref_file = None
+    
+    # Check GPT weights
+    if gpt_weights_dir.exists():
+        for f in gpt_weights_dir.glob("*.ckpt"):
+            if voice_lower in f.name.lower().replace("_", ""):
+                gpt_file = f
+                break
+    
+    # Check SoVITS weights
+    if sovits_weights_dir.exists():
+        for f in sovits_weights_dir.glob("*.pth"):
+            if voice_lower in f.name.lower().replace("_", ""):
+                sovits_file = f
+                break
+    
+    # Check reference audio
+    if ref_audio_dir.exists():
+        for f in ref_audio_dir.glob("*.wav"):
+            if voice_lower in f.name.lower().replace("_", ""):
+                ref_file = f
+                break
+    
+    # Also check the original path structure from VOICE_CONFIGS
+    if not (gpt_file and sovits_file):
+        config = VOICE_CONFIGS[voice_name]
+        moyoyo_dir = models_dir / "moyoyo"
+        
+        # Check if all required files exist at expected paths
+        gpt_path = moyoyo_dir / config.get("gpt_weights", "")
+        sovits_path = moyoyo_dir / config.get("sovits_weights", "")
+        ref_path = moyoyo_dir / config.get("reference_audio", "")
+        
+        if gpt_path.exists():
+            gpt_file = gpt_path
+        if sovits_path.exists():
+            sovits_file = sovits_path
+        if ref_path.exists():
+            ref_file = ref_path
+    
+    # Calculate total size if we have at least GPT and SoVITS files
+    if gpt_file and sovits_file:
+        total_size = gpt_file.stat().st_size + sovits_file.stat().st_size
+        if ref_file:
+            total_size += ref_file.stat().st_size
+        return True, total_size / (1024**2)  # Convert to MB
+    
+    return False, 0
+
+def list_downloaded_voices(models_dir: Path) -> dict:
+    """List all downloaded voices.
+    
+    Returns:
+        Dictionary with voice names as keys and metadata as values
+    """
+    downloaded = {}
+    for voice_name in VOICE_CONFIGS:
+        is_downloaded, size_mb = check_voice_downloaded(voice_name, models_dir)
+        if is_downloaded:
+            downloaded[voice_name] = {
+                "size_mb": size_mb,
+                "repository": VOICE_CONFIGS[voice_name]["repository"]
+            }
+    return downloaded
 
 
 def list_downloaded_models():
@@ -284,6 +462,35 @@ def download_funasr_models(models_dir: Optional[Path] = None):
     
     print(f"   Destination: {funasr_dir}")
     
+    # Check and install Git LFS if needed
+    def check_and_install_git_lfs():
+        """Check if Git LFS is installed and install if missing."""
+        try:
+            result = subprocess.run(["git", "lfs", "version"], capture_output=True, text=True)
+            if result.returncode == 0:
+                return True
+        except FileNotFoundError:
+            pass
+        
+        print("   ⚠️  Git LFS not found. Installing...")
+        try:
+            # Try to install git-lfs
+            if sys.platform == "linux":
+                subprocess.run(["sudo", "apt-get", "update"], capture_output=True)
+                subprocess.run(["sudo", "apt-get", "install", "-y", "git-lfs"], capture_output=True)
+            elif sys.platform == "darwin":
+                subprocess.run(["brew", "install", "git-lfs"], capture_output=True)
+            else:
+                print("   Please install Git LFS manually")
+                return False
+            
+            # Initialize Git LFS
+            subprocess.run(["git", "lfs", "install"], capture_output=True)
+            return True
+        except Exception as e:
+            print(f"   Could not install Git LFS automatically: {e}")
+            return False
+    
     # FunASR models to download
     funasr_models = [
         {
@@ -303,15 +510,43 @@ def download_funasr_models(models_dir: Optional[Path] = None):
         model_path = funasr_dir / model["local_name"]
         
         if model_path.exists():
-            print(f"   ✓ {model['name']} already exists")
-            downloaded += 1
-            continue
+            # Check if model weights are actually downloaded (not just LFS pointers)
+            model_pt_path = model_path / "model.pt"
+            if model_pt_path.exists():
+                size_mb = model_pt_path.stat().st_size / (1024**2)
+                if size_mb > 1:  # Real model file should be > 1MB
+                    print(f"   ✓ {model['name']} already exists ({size_mb:.1f} MB)")
+                    downloaded += 1
+                    continue
+                else:
+                    print(f"   ⚠️  {model['name']} exists but model.pt is only {size_mb:.3f} MB (LFS pointer)")
+                    print("      Will download actual model weights...")
         
         print(f"   ⏳ Downloading {model['name']}...")
         
         # Try using git clone (ModelScope)
         try:
             import subprocess
+            
+            # Check Git LFS
+            has_lfs = check_and_install_git_lfs()
+            
+            if model_path.exists() and (model_path / ".git").exists():
+                # Repository exists, just need to pull LFS files
+                print(f"      Repository exists, pulling LFS files...")
+                if has_lfs:
+                    subprocess.run(["git", "lfs", "install"], cwd=str(model_path), capture_output=True)
+                    result = subprocess.run(["git", "lfs", "pull"], cwd=str(model_path), capture_output=True, text=True)
+                    if result.returncode == 0:
+                        print(f"   ✅ Downloaded {model['name']} weights")
+                        downloaded += 1
+                        continue
+                    else:
+                        print(f"      LFS pull failed: {result.stderr}")
+                        print("      Trying full clone...")
+                        shutil.rmtree(model_path)
+            
+            # Clone the repository
             cmd = [
                 "git", "clone", 
                 f"https://modelscope.cn/models/{model['repo_id']}.git",
@@ -320,8 +555,24 @@ def download_funasr_models(models_dir: Optional[Path] = None):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode == 0:
-                print(f"   ✅ Downloaded {model['name']}")
-                downloaded += 1
+                # After clone, ensure LFS files are downloaded
+                if has_lfs and (model_path / ".git").exists():
+                    subprocess.run(["git", "lfs", "install"], cwd=str(model_path), capture_output=True)
+                    subprocess.run(["git", "lfs", "pull"], cwd=str(model_path), capture_output=True)
+                
+                # Verify model.pt is downloaded
+                model_pt_path = model_path / "model.pt"
+                if model_pt_path.exists():
+                    size_mb = model_pt_path.stat().st_size / (1024**2)
+                    if size_mb > 1:
+                        print(f"   ✅ Downloaded {model['name']} ({size_mb:.1f} MB)")
+                        downloaded += 1
+                    else:
+                        print(f"   ⚠️  {model['name']} cloned but model.pt is only {size_mb:.3f} MB")
+                        print("      Model weights may not be fully downloaded. Try running:")
+                        print(f"      cd {model_path} && git lfs pull")
+                else:
+                    print(f"   ⚠️  {model['name']} cloned but model.pt not found")
             else:
                 print(f"   ❌ Failed to download {model['name']}: {result.stderr}")
                 
@@ -329,8 +580,8 @@ def download_funasr_models(models_dir: Optional[Path] = None):
             print(f"   ❌ Download timeout for {model['name']}")
         except FileNotFoundError:
             print("   ❌ Git not installed. Please install git first.")
-            print("      macOS: brew install git")
-            print("      Linux: sudo apt-get install git")
+            print("      macOS: brew install git git-lfs")
+            print("      Linux: sudo apt-get install git git-lfs")
         except Exception as e:
             print(f"   ❌ Error downloading {model['name']}: {e}")
     
@@ -356,7 +607,7 @@ def download_g2pw_model(models_dir: Path = None):
     """Download G2PW model for Chinese text-to-phoneme conversion."""
     print("\n📥 Downloading G2PW model for Chinese TTS")
     print("   Type: G2PW (Grapheme-to-Phoneme for Chinese)")
-    print("   Source: PaddleSpeech")
+    print("   Source: HuggingFace (alextomcat/G2PWModel)")
     
     # Determine target directory in models folder
     if models_dir is None:
@@ -381,53 +632,111 @@ def download_g2pw_model(models_dir: Path = None):
     # Create directory
     g2pw_dir.mkdir(parents=True, exist_ok=True)
     
-    # Download from PaddleSpeech
-    import requests
-    import zipfile
-    import io
-    
-    url = "https://storage.googleapis.com/esun-ai/g2pW/G2PWModel-v2-onnx.zip"
-    
+    # Download from HuggingFace
     try:
-        print("   ⏳ Downloading G2PWModel-v2-onnx.zip (~600MB)...")
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
+        print("   ⏳ Downloading G2PW ONNX model from HuggingFace...")
         
-        total_size = int(response.headers.get('content-length', 0))
+        repo_id = "alextomcat/G2PWModel"
+        filename = "g2pW.onnx"
+        output_path = g2pw_dir / filename
         
-        # Download with progress bar
-        from tqdm import tqdm
-        content = b""
-        with tqdm(total=total_size, unit='B', unit_scale=True, desc="   Downloading") as pbar:
-            for chunk in response.iter_content(chunk_size=8192):
-                content += chunk
-                pbar.update(len(chunk))
+        # Skip if already exists
+        if output_path.exists():
+            size_mb = output_path.stat().st_size / (1024**2)
+            print(f"   ✓ {filename} already exists ({size_mb:.1f} MB)")
+            return True
         
-        print("   📦 Extracting G2PW model...")
-        with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
-            # Extract directly to target directory
-            zip_file.extractall(g2pw_dir.parent)
+        try:
+            # Download ONNX model from HuggingFace
+            file_path = hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=str(g2pw_dir)
+            )
             
-            # Check if files were extracted to G2PWModel-v2-onnx and move them
-            temp_dir = g2pw_dir.parent / "G2PWModel-v2-onnx"
-            if temp_dir.exists():
-                import shutil
-                if g2pw_dir.exists():
-                    shutil.rmtree(g2pw_dir)
-                shutil.move(str(temp_dir), str(g2pw_dir))
-        
-        print(f"   ✅ G2PW model downloaded successfully!")
-        print(f"   Location: {g2pw_dir}")
-        return True
-        
-    except Exception as e:
-        print(f"   ❌ Error downloading G2PW model: {e}")
-        print("\n   Manual download instructions:")
-        print(f"   1. Download: {url}")
-        print(f"   2. Extract the zip file")
-        print(f"   3. Rename 'G2PWModel_1.1' to 'G2PWModel'")
-        print(f"   4. Move to: {g2pw_dir}")
+            if Path(file_path).exists():
+                size_mb = Path(file_path).stat().st_size / (1024**2)
+                print(f"   ✅ Downloaded {filename} ({size_mb:.1f} MB)")
+                print(f"   Location: {g2pw_dir}")
+                
+                # Note about additional files
+                print("\n   Note: The ONNX model requires additional dictionary files.")
+                print("   If needed, these can be downloaded from:")
+                print("   https://storage.googleapis.com/esun-ai/g2pW/G2PWModel-v2-onnx.zip")
+                
+                return True
+            else:
+                print(f"   ❌ Failed to download {filename}")
+                return False
+                
+        except Exception as e:
+            print(f"   ❌ Error downloading {filename}: {e}")
+            raise  # Re-raise to trigger fallback
+            
+    except RepositoryNotFoundError:
+        print(f"   ❌ Repository not found: {repo_id}")
+        print("   Please check the repository name.")
         return False
+    except Exception as e:
+        # Fallback to alternative download method for complete package
+        print("\n   Trying alternative download from Google Storage for complete package...")
+        url = "https://storage.googleapis.com/esun-ai/g2pW/G2PWModel-v2-onnx.zip"
+        
+        try:
+            import requests
+            import zipfile
+            import io
+            
+            print(f"   ⏳ Downloading G2PWModel-v2-onnx.zip (~600MB, includes dictionaries)...")
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # Download with progress bar
+            from tqdm import tqdm
+            content = b""
+            with tqdm(total=total_size, unit='B', unit_scale=True, desc="   Downloading") as pbar:
+                for chunk in response.iter_content(chunk_size=8192):
+                    content += chunk
+                    pbar.update(len(chunk))
+            
+            print("   📦 Extracting G2PW model with dictionaries...")
+            with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
+                # Extract directly to target directory
+                zip_file.extractall(g2pw_dir.parent)
+                
+                # Check if files were extracted to G2PWModel-v2-onnx and move them
+                temp_dir = g2pw_dir.parent / "G2PWModel-v2-onnx"
+                if temp_dir.exists():
+                    import shutil
+                    if g2pw_dir.exists():
+                        shutil.rmtree(g2pw_dir)
+                    shutil.move(str(temp_dir), str(g2pw_dir))
+            
+            # List extracted files
+            extracted_files = list(g2pw_dir.glob("*"))
+            if extracted_files:
+                print(f"   ✅ G2PW model downloaded with {len(extracted_files)} files!")
+                for f in extracted_files[:5]:  # Show first 5 files
+                    size_mb = f.stat().st_size / (1024**2) if f.is_file() else 0
+                    print(f"      • {f.name} ({size_mb:.1f} MB)")
+                if len(extracted_files) > 5:
+                    print(f"      ... and {len(extracted_files) - 5} more files")
+            
+            print(f"   Location: {g2pw_dir}")
+            return True
+            
+        except Exception as fallback_error:
+            print(f"   ❌ Fallback download also failed: {fallback_error}")
+            print("\n   Manual download instructions:")
+            print(f"   1. Visit: https://huggingface.co/alextomcat/G2PWModel")
+            print(f"   2. Download g2pW.onnx")
+            print(f"   3. Place it in: {g2pw_dir}")
+            print("\n   For complete package with dictionaries:")
+            print(f"   1. Download: {url}")
+            print(f"   2. Extract to: {g2pw_dir}")
+            return False
 
 
 def download_primespeech_base(models_dir: Path):
@@ -436,7 +745,8 @@ def download_primespeech_base(models_dir: Path):
     print("   Type: primespeech base (Chinese Hubert & Roberta)")
     print("   Source: MoYoYoTech/tone-models")
     
-    manager = ModelManager(models_dir)
+    moyoyo_dir = models_dir / "moyoyo"
+    moyoyo_dir.mkdir(parents=True, exist_ok=True)
     
     # Base pretrained model files needed by all voices
     base_files = {
@@ -458,8 +768,12 @@ def download_primespeech_base(models_dir: Path):
             
         try:
             print(f"⏳ Downloading {filename}...")
-            # Use model manager to download
-            manager.download_file_from_huggingface(filename)
+            # Download from HuggingFace
+            file_path = hf_hub_download(
+                repo_id="MoYoYoTech/tone-models",
+                filename=filename,
+                local_dir=str(moyoyo_dir)
+            )
             print(f"✅ Downloaded {filename}")
             downloaded_count += 1
         except Exception as e:
@@ -475,8 +789,6 @@ def download_primespeech_base(models_dir: Path):
 
 def download_voice_models(voice_name: str, models_dir: Path):
     """Download voice-specific models."""
-    manager = ModelManager(models_dir)
-    
     if voice_name == "all":
         voices_to_download = list(VOICE_CONFIGS.keys())
     else:
@@ -489,21 +801,43 @@ def download_voice_models(voice_name: str, models_dir: Path):
     print(f"\nVoices to download: {', '.join(voices_to_download)}")
     print("-" * 50)
     
+    moyoyo_dir = models_dir / "moyoyo"
+    moyoyo_dir.mkdir(parents=True, exist_ok=True)
+    
     for voice in voices_to_download:
         voice_config = VOICE_CONFIGS[voice]
         
         print(f"\n[{voice}]")
         
-        if manager.check_models_exist(voice, voice_config):
-            size_mb = manager.get_model_size(voice, voice_config)
+        # Check if already downloaded
+        is_downloaded, size_mb = check_voice_downloaded(voice, models_dir)
+        if is_downloaded:
             print(f"  ✓ Already downloaded ({size_mb:.1f} MB)")
             continue
         
         print(f"  Downloading from {voice_config['repository']}...")
         try:
-            model_paths = manager.get_voice_model_paths(voice, voice_config)
-            size_mb = manager.get_model_size(voice, voice_config)
-            print(f"  ✓ Downloaded successfully ({size_mb:.1f} MB)")
+            # Download each file
+            files_to_download = [
+                voice_config.get("gpt_weights"),
+                voice_config.get("sovits_weights"),
+                voice_config.get("reference_audio")
+            ]
+            
+            for file_path in files_to_download:
+                if file_path:
+                    hf_hub_download(
+                        repo_id=voice_config["repository"],
+                        filename=file_path,
+                        local_dir=str(moyoyo_dir)
+                    )
+            
+            # Check if successfully downloaded
+            is_downloaded, size_mb = check_voice_downloaded(voice, models_dir)
+            if is_downloaded:
+                print(f"  ✓ Downloaded successfully ({size_mb:.1f} MB)")
+            else:
+                print(f"  ✗ Failed to download")
         except Exception as e:
             print(f"  ✗ Failed to download: {e}")
     
@@ -616,18 +950,13 @@ def remove_voice_models(voice_name: str, models_dir: Path) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    if not PRIMESPEECH_AVAILABLE:
-        print("❌ PrimeSpeech not available")
-        return False
-    
-    manager = ModelManager(models_dir)
     moyoyo_dir = models_dir / "moyoyo"
     
     if voice_name == "all":
         print("\n🗑️  Removing ALL PrimeSpeech voice models")
         
         # List all downloaded voices
-        available = manager.list_available_voices()
+        available = list_downloaded_voices(models_dir)
         if not available:
             print("   No voices found to remove")
             return False
@@ -668,12 +997,10 @@ def remove_voice_models(voice_name: str, models_dir: Path) -> bool:
         voice_config = VOICE_CONFIGS[voice_name]
         
         # Check if voice is downloaded
-        if not manager.check_models_exist(voice_name, voice_config):
+        is_downloaded, size_mb = check_voice_downloaded(voice_name, models_dir)
+        if not is_downloaded:
             print(f"❌ Voice '{voice_name}' is not downloaded")
             return False
-        
-        # Get size
-        size_mb = manager.get_model_size(voice_name, voice_config)
         print(f"   Size: {size_mb:.1f} MB")
         
         # Files to remove
@@ -699,7 +1026,7 @@ def remove_voice_models(voice_name: str, models_dir: Path) -> bool:
                 print(f"✅ Successfully removed {voice_name} ({removed_count} files)")
                 
                 # Check if we should also remove base models
-                remaining_voices = manager.list_available_voices()
+                remaining_voices = list_downloaded_voices(models_dir)
                 if not remaining_voices:
                     response = input("\n   No voices remaining. Remove base models too? (yes/no): ").lower().strip()
                     if response in ['yes', 'y']:
@@ -882,27 +1209,52 @@ def main():
     
     # Handle --list-voices (show PrimeSpeech voices)
     if args.list_voices:
-        if PRIMESPEECH_AVAILABLE:
-            print("\nAvailable PrimeSpeech voices:")
-            print("-" * 50)
-            for voice_name, config in VOICE_CONFIGS.items():
-                lang = config.get("text_lang", "unknown")
-                print(f"  {voice_name:15} - Language: {lang}")
-        else:
-            print("\nPrimeSpeech not available. Use --download with a HuggingFace repo ID.")
-        return
-    
-    # Get models directory for PrimeSpeech
-    if PRIMESPEECH_AVAILABLE:
+        # Get models directory
         if args.models_dir:
             models_dir = Path(args.models_dir)
         else:
-            models_dir = PrimeSpeechConfig.get_models_dir()
+            models_dir = get_primespeech_models_dir()
         
-        # Only print for PrimeSpeech operations
-        if args.voice or (args.download and args.download == "primespeech-base"):
-            print(f"\nModels directory: {models_dir}")
-            manager = ModelManager(models_dir)
+        downloaded_voices = list_downloaded_voices(models_dir)
+        
+        print("\nPrimeSpeech Voices:")
+        print("=" * 60)
+        print(f"{'Voice Name':<20} {'Language':<10} {'Status':<12} {'Size'}")
+        print("-" * 60)
+        
+        for voice_name, config in VOICE_CONFIGS.items():
+            lang = config.get("text_lang", "unknown")
+            
+            # Check if voice is downloaded
+            if voice_name in downloaded_voices:
+                size_mb = downloaded_voices[voice_name].get("size_mb", 0)
+                status = "✅ Downloaded"
+                size_str = f"{size_mb:.1f} MB"
+            else:
+                status = "⬇️  Available"
+                size_str = "-"
+            
+            print(f"  {voice_name:<18} {lang:<10} {status:<12} {size_str}")
+        
+        # Show summary
+        print("-" * 60)
+        print(f"Downloaded: {len(downloaded_voices)}/{len(VOICE_CONFIGS)} voices")
+        
+        if len(downloaded_voices) < len(VOICE_CONFIGS):
+            print("\nTo download voices:")
+            print("  python download_models.py --voice <voice_name>")
+            print("  python download_models.py --voice all")
+        return
+    
+    # Get models directory for PrimeSpeech operations
+    if args.models_dir:
+        models_dir = Path(args.models_dir)
+    else:
+        models_dir = get_primespeech_models_dir()
+    
+    # Only print for PrimeSpeech operations
+    if args.voice or (args.download and args.download == "primespeech-base"):
+        print(f"\nModels directory: {models_dir}")
     
     # Handle --download argument
     if args.download:
@@ -923,7 +1275,7 @@ def main():
             success = download_funasr_models()
             if not success:
                 sys.exit(1)
-        elif args.download == "primespeech-base" and PRIMESPEECH_AVAILABLE:
+        elif args.download == "primespeech-base":
             success = download_primespeech_base(models_dir)
             if not success:
                 sys.exit(1)
@@ -932,23 +1284,23 @@ def main():
             success = download_g2pw_model()
             if not success:
                 sys.exit(1)
-        elif PRIMESPEECH_AVAILABLE:
+        else:
             # Treat as voice name
             success = download_voice_models(args.download, models_dir)
             if not success:
                 sys.exit(1)
-        else:
-            print(f"❌ Unknown model or PrimeSpeech not available: {args.download}")
-            sys.exit(1)
+            # Treat as voice name
+            success = download_voice_models(args.download, models_dir)
+            if not success:
+                sys.exit(1)
     
     # Handle --remove argument
     elif args.remove:
-        # Ensure models_dir is set for PrimeSpeech operations
-        if PRIMESPEECH_AVAILABLE:
-            if args.models_dir:
-                models_dir = Path(args.models_dir)
-            else:
-                models_dir = PrimeSpeechConfig.get_models_dir()
+        # Ensure models_dir is set for voice operations
+        if args.models_dir:
+            models_dir = Path(args.models_dir)
+        else:
+            models_dir = get_primespeech_models_dir()
         
         # Check if it's a HuggingFace repo (contains '/')
         if '/' in args.remove:
@@ -961,7 +1313,7 @@ def main():
             success = remove_funasr_models()
             if not success:
                 sys.exit(1)
-        elif args.remove == "all-voices" and PRIMESPEECH_AVAILABLE:
+        elif args.remove == "all-voices":
             # Remove all voice models
             success = remove_voice_models("all", models_dir)
             if not success:
@@ -971,12 +1323,12 @@ def main():
             success = remove_g2pw_model()
             if not success:
                 sys.exit(1)
-        elif args.remove == "primespeech-base" and PRIMESPEECH_AVAILABLE:
+        elif args.remove == "primespeech-base":
             # Remove base models
             success = remove_primespeech_base_models(models_dir)
             if not success:
                 sys.exit(1)
-        elif PRIMESPEECH_AVAILABLE and args.remove in VOICE_CONFIGS:
+        elif args.remove in VOICE_CONFIGS:
             # Remove specific voice
             success = remove_voice_models(args.remove, models_dir)
             if not success:
@@ -987,20 +1339,15 @@ def main():
             print("   - HuggingFace repo ID (e.g., 'mlx-community/gemma-3-12b-it-4bit')")
             print("   - 'funasr' to remove FunASR models")
             print("   - 'g2pw' to remove G2PW model")
-            if PRIMESPEECH_AVAILABLE:
-                print("   - 'all-voices' to remove all PrimeSpeech voices")
-                print("   - 'primespeech-base' to remove base models")
-                print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
+            print("   - 'all-voices' to remove all PrimeSpeech voices")
+            print("   - 'primespeech-base' to remove base models")
+            print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
             sys.exit(1)
     
     # Handle --voice argument
     elif args.voice:
-        if PRIMESPEECH_AVAILABLE:
-            success = download_voice_models(args.voice, models_dir)
-            if not success:
-                sys.exit(1)
-        else:
-            print("❌ PrimeSpeech not available. Cannot download voice models.")
+        success = download_voice_models(args.voice, models_dir)
+        if not success:
             sys.exit(1)
     
     # Default: show help
@@ -1025,20 +1372,18 @@ def main():
         print("  # List downloaded models:")
         print("  python download_models.py --list")
         
-        if PRIMESPEECH_AVAILABLE:
-            print("\n  # PrimeSpeech models:")
-            print("  python download_models.py --download primespeech-base")
-            print("  python download_models.py --voice Doubao")
-            print("  python download_models.py --voice all")
-            print("  python download_models.py --list-voices")
+        print("\n  # PrimeSpeech models:")
+        print("  python download_models.py --download primespeech-base")
+        print("  python download_models.py --voice Doubao")
+        print("  python download_models.py --voice all")
+        print("  python download_models.py --list-voices")
         
         print("\n  # Remove models:")
         print("  python download_models.py --remove mlx-community/gemma-3-12b-it-4bit")
         print("  python download_models.py --remove funasr")
-        if PRIMESPEECH_AVAILABLE:
-            print("  python download_models.py --remove \"Luo Xiang\"")
-            print("  python download_models.py --remove all-voices")
-            print("  python download_models.py --remove primespeech-base")
+        print("  python download_models.py --remove \"Luo Xiang\"")
+        print("  python download_models.py --remove all-voices")
+        print("  python download_models.py --remove primespeech-base")
         return
     
     # Only show available voices if we downloaded something
@@ -1047,8 +1392,7 @@ def main():
         print("Available voices on disk:")
         print("-" * 50)
         
-        manager = ModelManager(models_dir)
-        available = manager.list_available_voices()
+        available = list_downloaded_voices(models_dir)
         if available:
             for voice_name, metadata in available.items():
                 repo = metadata.get("repository", "unknown")
