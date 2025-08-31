@@ -9,6 +9,13 @@ import pyarrow as pa
 from .engines import ASRInterface, WhisperEngine, FunASREngine
 from .config import ASRConfig
 
+# Try to import GPU-enhanced FunASR
+try:
+    from .engines import FunASRGPUEngine
+    HAS_GPU_FUNASR = True
+except ImportError:
+    HAS_GPU_FUNASR = False
+
 
 class ASRManager:
     """
@@ -26,6 +33,11 @@ class ASRManager:
             'whisper': WhisperEngine,
             'funasr': FunASREngine
         }
+        
+        # Use GPU-enhanced FunASR if available and GPU is enabled
+        if HAS_GPU_FUNASR and self.config.USE_GPU:
+            self._engine_classes['funasr'] = FunASRGPUEngine
+            self.send_log("INFO", "Using GPU-enhanced FunASR engine")
         
         # Language to engine mapping
         self._language_to_engine = self.config.LANGUAGE_TO_ENGINE.copy()
