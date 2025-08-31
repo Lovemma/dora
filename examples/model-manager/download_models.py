@@ -634,43 +634,64 @@ def download_g2pw_model(models_dir: Path = None):
     
     # Download from HuggingFace
     try:
-        print("   ⏳ Downloading G2PW ONNX model from HuggingFace...")
+        print("   ⏳ Downloading complete G2PW model from HuggingFace...")
         
         repo_id = "alextomcat/G2PWModel"
-        filename = "g2pW.onnx"
-        output_path = g2pw_dir / filename
         
-        # Skip if already exists
-        if output_path.exists():
-            size_mb = output_path.stat().st_size / (1024**2)
-            print(f"   ✓ {filename} already exists ({size_mb:.1f} MB)")
+        # Check if already has all necessary files
+        required_files = ["g2pW.onnx", "config.py", "bert_config.json", "POLYPHONIC_CHARS.txt"]
+        if g2pw_dir.exists() and all((g2pw_dir / f).exists() for f in required_files):
+            print(f"   ✓ G2PW model already complete with all required files")
             return True
         
         try:
-            # Download ONNX model from HuggingFace
-            file_path = hf_hub_download(
-                repo_id=repo_id,
-                filename=filename,
-                local_dir=str(g2pw_dir)
-            )
+            # Download entire repository from HuggingFace
+            print(f"   Downloading all files from {repo_id}...")
             
-            if Path(file_path).exists():
-                size_mb = Path(file_path).stat().st_size / (1024**2)
-                print(f"   ✅ Downloaded {filename} ({size_mb:.1f} MB)")
-                print(f"   Location: {g2pw_dir}")
+            # List all files in the repository
+            files = list_repo_files(repo_id)
+            print(f"   Found {len(files)} files in repository")
+            
+            # Download all files
+            downloaded_count = 0
+            for file in files:
+                output_path = g2pw_dir / file
                 
-                # Note about additional files
-                print("\n   Note: The ONNX model requires additional dictionary files.")
-                print("   If needed, these can be downloaded from:")
-                print("   https://storage.googleapis.com/esun-ai/g2pW/G2PWModel-v2-onnx.zip")
+                # Skip if already exists
+                if output_path.exists():
+                    print(f"   ✓ {file} already exists")
+                    continue
                 
-                return True
-            else:
-                print(f"   ❌ Failed to download {filename}")
-                return False
+                # Create parent directories if needed
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Download the file
+                print(f"   Downloading {file}...")
+                downloaded_path = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=file,
+                    local_dir=str(g2pw_dir)
+                )
+                downloaded_count += 1
+            
+            print(f"   ✅ Downloaded {downloaded_count} new files")
+            print(f"   Location: {g2pw_dir}")
+            
+            # List all files in the directory
+            all_files = list(g2pw_dir.rglob("*"))
+            file_count = sum(1 for f in all_files if f.is_file())
+            print(f"   Total files: {file_count}")
+            
+            # Show important files
+            for important_file in required_files:
+                if (g2pw_dir / important_file).exists():
+                    size_mb = (g2pw_dir / important_file).stat().st_size / (1024**2)
+                    print(f"      • {important_file} ({size_mb:.1f} MB)")
+            
+            return True
                 
         except Exception as e:
-            print(f"   ❌ Error downloading {filename}: {e}")
+            print(f"   ❌ Error downloading from HuggingFace: {e}")
             raise  # Re-raise to trigger fallback
             
     except RepositoryNotFoundError:

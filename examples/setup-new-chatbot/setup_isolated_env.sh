@@ -131,7 +131,7 @@ install_dependencies() {
     pip install pyarrow scipy librosa soundfile webrtcvad
     pip install openai websockets aiohttp requests
     pip install pyyaml toml python-dotenv
-    pip install pyaudio portaudio sounddevice
+    pip install pyaudio sounddevice
     
     print_success "Core dependencies installed"
 }

@@ -221,7 +221,10 @@ def main():
                     send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}")
                     
                 except Exception as e:
+                    import traceback
+                    error_details = traceback.format_exc()
                     send_log(node, "ERROR", f"Synthesis error: {e}")
+                    send_log(node, "ERROR", f"Traceback: {error_details}")
                     
                     # Send empty audio on error
                     node.send_output(
@@ -234,6 +237,19 @@ def main():
                             "sample_rate": config.SAMPLE_RATE
                         }
                     )
+                    
+                    # Still send segment_complete even on error to avoid hanging
+                    node.send_output(
+                        "segment_complete",
+                        pa.array(["error"]),
+                        metadata={
+                            "session_id": session_id,
+                            "request_id": request_id,
+                            "segment_index": segment_index,
+                            "error": str(e)
+                        }
+                    )
+                    send_log(node, "ERROR", f"Sent error segment_complete for segment {segment_index + 1}")
             
             elif input_id == "control":
                 # Handle control commands
