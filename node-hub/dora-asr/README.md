@@ -25,10 +25,13 @@ pip install -e dora-asr
 pip install openai-whisper
 
 # For FunASR backend (Chinese optimized)
-pip install funasr
+pip install funasr-onnx
 
-# For GPU acceleration
-pip install torch torchvision torchaudio
+# For GPU acceleration (optional)
+pip install -e "dora-asr[gpu]"
+# Or install manually:
+# - For FunASR GPU: pip install onnxruntime-gpu
+# - For Whisper GPU: pip install torch torchvision torchaudio
 ```
 
 ## Inputs

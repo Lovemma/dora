@@ -18,7 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = [
-    "torch",
+    "onnxruntime-gpu",  # For FunASR GPU acceleration
+    "torch",            # For Whisper GPU acceleration
     "torchaudio",
 ]
 
