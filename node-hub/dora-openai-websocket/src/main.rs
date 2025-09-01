@@ -14,13 +14,10 @@
 
 use base64::engine::general_purpose;
 use base64::Engine;
-use dora_cli::command::Executable;
-use dora_cli::command::Start;
 use dora_node_api::arrow::array::{Array, AsArray};
 use dora_node_api::arrow::datatypes::DataType;
 use dora_node_api::dora_core::config::DataId;
 use dora_node_api::dora_core::config::NodeId;
-use dora_node_api::dora_core::topics::DORA_COORDINATOR_PORT_CONTROL_DEFAULT;
 use dora_node_api::into_vec;
 use dora_node_api::DoraNode;
 use dora_node_api::IntoArrow;
@@ -49,8 +46,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ErrorDetails {
@@ -345,17 +340,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     // Copy configuration file but replace the node ID with "server-id"
     // Read the configuration file and replace the node ID with "server-id"
     println!("Starting dataflow: {}", dataflow);
-    match dora_cli::command::Command::Start(Start {
-        dataflow: dataflow.clone(),
-        name: Some(node_id.to_string()),
-        coordinator_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        coordinator_port: DORA_COORDINATOR_PORT_CONTROL_DEFAULT,
-        attach: false,
-        detach: true,
-        hot_reload: false,
-        uv: true,
-    })
-    .execute() {
+    // Use dora_cli's public run_func to start the dataflow
+    match dora_cli::run_func(dataflow.clone(), true) {
         Ok(_) => println!("Dataflow '{}' started successfully", dataflow),
         Err(e) => {
             println!("ERROR: Failed to start dataflow '{}': {:?}", dataflow, e);

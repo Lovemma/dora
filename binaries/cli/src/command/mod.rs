@@ -21,7 +21,6 @@ use check::Check;
 use coordinator::Coordinator;
 use daemon::Daemon;
 use destroy::Destroy;
-use eyre::Context;
 use graph::Graph;
 use list::ListArgs;
 use logs::LogsArgs;

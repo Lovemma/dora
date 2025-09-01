@@ -1,7 +1,5 @@
 use base64::Engine;
 use base64::engine::general_purpose;
-use dora_cli::command::Executable;
-use dora_cli::command::Start;
 use dora_node_api::DoraNode;
 use dora_node_api::IntoArrow;
 use dora_node_api::MetadataParameters;
@@ -9,7 +7,6 @@ use dora_node_api::arrow::array::{Array, AsArray};
 use dora_node_api::arrow::datatypes::DataType;
 use dora_node_api::dora_core::config::DataId;
 use dora_node_api::dora_core::config::NodeId;
-use dora_node_api::dora_core::topics::DORA_COORDINATOR_PORT_CONTROL_DEFAULT;
 use dora_node_api::into_vec;
 use rubato::{Resampler, SincFixedIn, SincInterpolationType, SincInterpolationParameters, WindowFunction};
 use fastwebsockets::Frame;
@@ -35,8 +32,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -326,18 +321,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     replace_placeholder_in_file(&template, &replacements, &dataflow).unwrap();
     // Copy configuration file but replace the node ID with "server-id"
     // Read the configuration file and replace the node ID with "server-id"
-    dora_cli::command::Command::Start(Start {
-        dataflow,
-        name: Some(node_id.to_string()),
-        coordinator_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        coordinator_port: DORA_COORDINATOR_PORT_CONTROL_DEFAULT,
-        attach: false,
-        detach: true,
-        hot_reload: false,
-        uv: true,
-    })
-    .execute()
-    .unwrap();
+    // Use dora_cli's public run_func to start the dataflow
+    // Note: run_func expects a dataflow path string and uv flag
+    dora_cli::run_func(dataflow.clone(), true)
+        .expect("Failed to start dataflow");
     let (mut node, mut events) =
         DoraNode::init_from_node_id(NodeId::from(node_id.clone())).unwrap();
     let serialized_data = OpenAIRealtimeResponse::SessionCreated {
@@ -677,23 +664,5 @@ pub fn lib_main() -> Result<(), WebSocketError> {
     })
 }
 
-#[cfg(feature = "python")]
-use pyo3::{
-    Bound, PyResult, Python, pyfunction, pymodule,
-    types::{PyModule, PyModuleMethods},
-    wrap_pyfunction,
-};
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn py_main(_py: Python) -> PyResult<()> {
-    lib_main().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{}", e)))
-}
-
-#[cfg(feature = "python")]
-#[pymodule]
-fn dora_openai_websocket(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(py_main, &m)?)?;
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-    Ok(())
-}
+// Python bindings would go here if needed
+// Currently not implemented as this is a standalone Rust node

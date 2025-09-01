@@ -6,18 +6,19 @@ Direct test of TTS with timing and audio file saving.
 import sys
 import time
 import os
+import argparse
 import numpy as np
 import soundfile as sf
 from pathlib import Path
 
-# Setup paths
-sys.path.insert(0, '/home/user/dora/node-hub/dora-primespeech')
-os.environ['PRIMESPEECH_MODEL_DIR'] = '/home/user/.dora/models/primespeech'
-
-from dora_primespeech.moyoyo_tts_wrapper_streaming_fix import StreamingMoYoYoTTSWrapper
-
-def test_tts_timing():
-    """Test TTS with Chinese text and save audio."""
+def test_tts_timing(wrapper_class, voice='doubao', device='cpu'):
+    """Test TTS with Chinese text and save audio.
+    
+    Args:
+        wrapper_class: The StreamingMoYoYoTTSWrapper class
+        voice: Voice name to use
+        device: Device to use (cpu or cuda)
+    """
     
     print("=" * 80)
     print("Direct TTS Timing Test")
@@ -35,9 +36,9 @@ def test_tts_timing():
     print("\nInitializing TTS engine...")
     init_start = time.time()
     
-    wrapper = StreamingMoYoYoTTSWrapper(
-        voice='doubao',
-        device='cpu',
+    wrapper = wrapper_class(
+        voice=voice,
+        device=device,
         enable_streaming=False  # Use batch mode for simplicity
     )
     
@@ -84,12 +85,105 @@ def test_tts_timing():
     return output_file
 
 
-if __name__ == "__main__":
+def main():
+    """Main function with argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="Test TTS with timing and audio file saving",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="""
+Examples:
+  # Use default paths
+  python test_tts_direct.py
+  
+  # Specify custom paths
+  python test_tts_direct.py --primespeech-path /path/to/dora-primespeech --model-dir /path/to/models
+  
+  # Use different voice
+  python test_tts_direct.py --voice maple
+  
+  # Use GPU acceleration
+  python test_tts_direct.py --device cuda
+        """
+    )
+    
+    parser.add_argument(
+        '--primespeech-path',
+        type=str,
+        default=os.path.expanduser('~/home/dora/node-hub/dora-primespeech'),
+        help='Path to dora-primespeech module'
+    )
+    
+    parser.add_argument(
+        '--model-dir',
+        type=str,
+        default=os.path.expanduser('~/.dora/models/primespeech'),
+        help='Path to PrimeSpeech models directory'
+    )
+    
+    parser.add_argument(
+        '--voice',
+        type=str,
+        default='doubao',
+        choices=['doubao', 'luoxiang', 'yangmi', 'zhoujielun', 'mayun', 
+                 'maple', 'cove', 'bys', 'ellen', 'juniper', 
+                 'mabaoguo', 'shenyi', 'trump'],
+        help='Voice to use for TTS'
+    )
+    
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='cpu',
+        choices=['cpu', 'cuda'],
+        help='Device to use for TTS (cpu or cuda)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Setup paths
+    primespeech_path = Path(args.primespeech_path).expanduser().resolve()
+    model_dir = Path(args.model_dir).expanduser().resolve()
+    
+    # Validate paths
+    if not primespeech_path.exists():
+        print(f"Error: PrimeSpeech path does not exist: {primespeech_path}")
+        sys.exit(1)
+    
+    if not model_dir.exists():
+        print(f"Error: Model directory does not exist: {model_dir}")
+        print(f"Please download models first using download_models.py")
+        sys.exit(1)
+    
+    # Add PrimeSpeech to path
+    sys.path.insert(0, str(primespeech_path))
+    
+    # Set environment variable
+    os.environ['PRIMESPEECH_MODEL_DIR'] = str(model_dir)
+    
+    print(f"Using PrimeSpeech path: {primespeech_path}")
+    print(f"Using model directory: {model_dir}")
+    print(f"Using voice: {args.voice}")
+    print(f"Using device: {args.device}")
+    
+    # Import after setting up paths
     try:
-        audio_file = test_tts_timing()
+        from dora_primespeech.moyoyo_tts_wrapper_streaming_fix import StreamingMoYoYoTTSWrapper
+    except ImportError as e:
+        print(f"Error importing TTS wrapper: {e}")
+        print("Make sure dora-primespeech is properly installed")
+        sys.exit(1)
+    
+    # Run test
+    try:
+        audio_file = test_tts_timing(StreamingMoYoYoTTSWrapper, args.voice, args.device)
         print(f"\n✓ Test completed successfully!")
         print(f"✓ Audio file: {audio_file}")
     except Exception as e:
         print(f"\n✗ Test failed: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

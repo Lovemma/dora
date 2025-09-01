@@ -9,7 +9,6 @@ use dora_tracing::TracingBuilder;
 use eyre::Context;
 use std::net::{IpAddr, SocketAddr};
 use tokio::runtime::Builder;
-use tracing::level_filters::LevelFilter;
 
 #[derive(Debug, clap::Args)]
 /// Run coordinator
