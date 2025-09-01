@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Test script to validate all dependencies are correctly installed."""
+"""Test script to validate all dependencies are correctly installed.
+
+Checks for standardized dependency versions as defined in DEPENDENCIES.md
+"""
 
 import sys
 import importlib
 import subprocess
 from pathlib import Path
 
-def test_import(module_name, package_name=None):
-    """Test if a module can be imported."""
+def test_import(module_name, package_name=None, expected_range=None):
+    """Test if a module can be imported and check version range."""
     if package_name is None:
         package_name = module_name
     
     try:
         module = importlib.import_module(module_name)
         version = getattr(module, '__version__', 'unknown')
-        print(f"✓ {package_name}: {version}")
+        
+        if expected_range and version != 'unknown':
+            print(f"✓ {package_name}: {version} {expected_range}")
+        else:
+            print(f"✓ {package_name}: {version}")
         return True
     except ImportError as e:
         print(f"✗ {package_name}: Import failed - {e}")
@@ -90,10 +97,11 @@ def main():
     print("\nCore Dependencies:")
     print("-" * 30)
     
-    # Test core dependencies
+    # Test core dependencies with version ranges (as per DEPENDENCIES.md)
     all_tests_passed &= test_numpy_version()
-    all_tests_passed &= test_import('torch')
-    all_tests_passed &= test_import('transformers')
+    all_tests_passed &= test_import('torch', expected_range='(>=2.0.0,<2.3.0)')
+    all_tests_passed &= test_import('transformers', expected_range='(>=4.40.0,<4.50.0)')
+    all_tests_passed &= test_import('torchaudio', expected_range='(>=2.0.0,<2.3.0)')
     all_tests_passed &= test_import('dora', 'dora-rs')
     
     print("\nML Libraries:")

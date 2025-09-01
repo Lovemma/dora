@@ -43,10 +43,37 @@ use rand::random;
 use serde;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use tokio::net::TcpListener;
+
+// Helper function for hybrid logging - tries send_log first, falls back to println
+#[allow(dead_code)]
+fn log_message(node_opt: Option<&mut DoraNode>, level: &str, message: &str) {
+    if let Some(node) = node_opt {
+        // Try to send through dora logging system
+        let log_data = serde_json::json!({
+            "node": "websocket-server",
+            "level": level,
+            "message": message
+        });
+        
+        if let Err(_) = node.send_output(
+            DataId::from("log".to_string()),
+            Default::default(),
+            serde_json::to_string(&log_data).unwrap().into_arrow(),
+        ) {
+            // Fallback to println if node output fails
+            println!("[{}] {}", level, message);
+        }
+    } else {
+        // No node available, use println
+        println!("[{}] {}", level, message);
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ErrorDetails {
     pub code: Option<String>,
@@ -316,10 +343,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         println!("Note: Client requested a Qwen/GGUF model, will use whatever is configured in the template");
     }
     
+    // Generate a unique ID for this connection
+    // Each connection needs its own dataflow because the WebSocket server is a dynamic node
     let id = random::<u16>();
-    let node_id = format!("server-{id}");
-    let dataflow = format!("{input_audio_transcription}-{}.yml", id);
-    let mut template = format!("{input_audio_transcription}-template-metal.yml");
+    let node_id = format!("server-{}", id);
+    let dataflow = format!("{}-{}.yml", input_audio_transcription, id);
+    let mut template = format!("{}-template-metal.yml", input_audio_transcription);
     
     println!("Looking for template file: {}", template);
     if !std::path::Path::new(&template).exists() {
@@ -355,17 +384,18 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         }
     }
     
+    // Create the dataflow file from template
+    println!("Creating dataflow '{}' from template '{}' with node_id '{}'", dataflow, template, node_id);
     let mut replacements = HashMap::new();
     replacements.insert("NODE_ID".to_string(), node_id.clone());
     replacements.insert("LLM_ID".to_string(), llm);
-    println!("Creating dataflow '{}' from template '{}' with node_id '{}'", dataflow, template, node_id);
     replace_placeholder_in_file(&template, &replacements, &dataflow).unwrap();
     // Copy configuration file but replace the node ID with "server-id"
     // Read the configuration file and replace the node ID with "server-id"
     // Send session responses FIRST before starting dataflow
     // This allows moly to transition from "connecting" to "listening"
     let session_response = serde_json::json!({
-        "id": format!("session_{}", id),
+        "id": format!("session_{}", node_id),
         "object": "realtime.session",
         "model": session.model.clone(),
         "modalities": session.modalities.clone(),
@@ -401,9 +431,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     println!("Sending session.updated acknowledgment to client");
     ws.write_frame(frame_updated).await?;
     
-    // Start the dataflow using dora CLI with the node_id as the name
-    // This is critical - passing the node_id as --name allows the websocket server to connect as that node
-    println!("Starting dataflow {} with name {}", dataflow, node_id);
+    // Start the dataflow using dora CLI
+    println!("Starting dataflow {} with node_id {}", dataflow, node_id);
     let output = std::process::Command::new("dora")
         .arg("start")
         .arg(&dataflow)
@@ -419,12 +448,11 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         return Err(WebSocketError::InvalidConnectionHeader);
     }
     
-    println!("Dataflow started successfully");
-    println!("Dora start output: {}", String::from_utf8_lossy(&output.stdout));
+    println!("✅ Dataflow started successfully with node_id: {}", node_id);
     
-    // Wait for dataflow to be fully initialized  
+    // Wait for dataflow to be fully initialized
     println!("Waiting for dataflow to initialize...");
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;  // Give more time for dataflow to start
     
     // Now try to initialize the Dora node in a separate task to avoid blocking
     println!("Attempting to initialize Dora node with ID: {}", node_id);
@@ -435,7 +463,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     
     // Try to get the node, but don't block if it fails
     let (mut node, mut events) = match tokio::time::timeout(
-        std::time::Duration::from_secs(2),
+        std::time::Duration::from_secs(5),  // Increased timeout for better reliability
         node_init_handle
     ).await {
         Ok(Ok(Ok((n, e)))) => {
@@ -492,7 +520,14 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     
     let mut audio_buffer = Vec::new(); // Buffer for microphone audio
     
-    println!("Starting main event loop with fixed-size resampler");
+    println!("🚀 Starting main event loop with fixed-size resampler");
+    println!("📊 Pipeline: WebSocket → ASR → MaaS → Text-Segmenter → TTS → Audio → WebSocket");
+    println!("👂 Listening for audio input and text output from dataflow nodes...");
+    println!("" );
+    
+    let mut audio_chunks_received = 0;
+    let mut text_chunks_sent = 0;
+    let mut last_activity = std::time::Instant::now();
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -506,10 +541,36 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         metadata: _,
                         data,
                     } => {
-                        // println!("Received Dora input event, id: {}", id);
+                        let now = std::time::Instant::now();
+                        let time_since_last = now.duration_since(last_activity).as_millis();
+                        last_activity = now;
+                        
                         if data.data_type() == &DataType::Utf8 {
                             let data = data.as_string::<i32>();
                             let str = data.value(0);
+                            text_chunks_sent += 1;
+                            
+                            // Determine the source node and log appropriately with full pipeline context
+                            if id.contains("transcription") {
+                                println!("┌─ [{}ms] 🎙️  ASR OUTPUT", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Text: '{}'", str.chars().take(100).collect::<String>());
+                                println!("│  Stats: Chunk #{}, {} chars", text_chunks_sent, str.len());
+                                println!("└─ 📤 Forwarding to client as transcription delta");
+                            } else if id.contains("text") && (id.contains("maas") || id.contains("qwen")) {
+                                println!("┌─ [{}ms] 🤖 LLM OUTPUT", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Text: '{}'", str.chars().take(100).collect::<String>());
+                                println!("│  Stats: Chunk #{}, {} chars", text_chunks_sent, str.len());
+                                println!("└─ 📤 Forwarding to client as text delta");
+                            } else {
+                                println!("┌─ [{}ms] 📝 TEXT OUTPUT", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Text: '{}'", str.chars().take(100).collect::<String>());
+                                println!("│  Stats: Chunk #{}, {} chars", text_chunks_sent, str.len());
+                                println!("└─ 📤 Forwarding to client");
+                            }
+                            
                             let serialized_data =
                                 OpenAIRealtimeResponse::ResponseAudioTranscriptDelta {
                                     response_id: "123".to_string(),
@@ -525,18 +586,37 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             ));
                             frame
                         } else if id.contains("audio") {
-                            // println!("Processing audio input from {}", id);
-                            // println!("Data type: {:?}", data.data_type());
-                            // println!("Data len: {}", data.len());
+                            audio_chunks_received += 1;
+                            
+                            // Log audio processing with enhanced detail
+                            if id.contains("primespeech") {
+                                println!("┌─ [{}ms] 🔊 TTS OUTPUT", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Audio: {} samples, {} bytes", data.len(), data.get_array_memory_size());
+                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("└─ 📤 Forwarding to client as audio data");
+                            } else if id.contains("audio-player") {
+                                println!("┌─ [{}ms] 🎵 AUDIO PLAYBACK", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Audio: {} samples", data.len());
+                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("└─ 📤 Forwarding to client");
+                            } else {
+                                println!("┌─ [{}ms] 🎵 AUDIO OUTPUT", time_since_last);
+                                println!("│  Node: {} → WebSocket", id);
+                                println!("│  Audio: {} samples", data.len());
+                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("└─ 📤 Forwarding to client");
+                            }
                             
                             // Handle audio data - it might be a list/array
                             let audio_data = if let Ok(vec_data) = into_vec::<f32>(&data) {
-                                // println!("Successfully converted using into_vec");
+                                println!("   ✓ Converted {} audio samples using into_vec", vec_data.len());
                                 vec_data
                             } else {
                                 // Try different array types
                                 if let Some(array) = data.as_any().downcast_ref::<dora_node_api::arrow::array::Float32Array>() {
-                                    // println!("Converting from Float32Array");
+                                    println!("   ✓ Converting from Float32Array ({} samples)", array.len());
                                     let mut vec_data = Vec::with_capacity(array.len());
                                     for i in 0..array.len() {
                                         if array.is_valid(i) {
@@ -752,6 +832,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             ws.write_frame(frame).await?;
         };
     }
+    
+    // Connection closed
+    println!("🔌 WebSocket client disconnected");
+    println!("   Dataflow '{}' with node_id '{}' will be stopped", dataflow, node_id);
 
     Ok(())
 }
@@ -791,9 +875,11 @@ fn main() -> Result<(), WebSocketError> {
         let addr = format!("{}:{}", host, port);
         let listener = TcpListener::bind(&addr).await?;
         println!("Server started, listening on {}", addr);
+        
         loop {
             let (stream, _) = listener.accept().await?;
             println!("Client connected");
+            
             tokio::spawn(async move {
                 let io = hyper_util::rt::TokioIo::new(stream);
                 let conn_fut = http1::Builder::new()

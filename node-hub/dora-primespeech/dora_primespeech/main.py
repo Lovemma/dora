@@ -16,7 +16,7 @@ from .model_manager import ModelManager
 from .moyoyo_tts_wrapper_streaming_fix import StreamingMoYoYoTTSWrapper as MoYoYoTTSWrapper, MOYOYO_AVAILABLE
 
 
-def send_log(node, level, message):
+def send_log(node, level, message, config_level="INFO"):
     """Send log message through log output channel."""
     LOG_LEVELS = {
         "DEBUG": 10,
@@ -25,7 +25,6 @@ def send_log(node, level, message):
         "ERROR": 40
     }
     
-    config_level = PrimeSpeechConfig.LOG_LEVEL
     if LOG_LEVELS.get(level, 0) < LOG_LEVELS.get(config_level, 20):
         return
     
@@ -48,7 +47,7 @@ def main():
     # Get voice configuration
     voice_name = config.VOICE_NAME
     if voice_name not in VOICE_CONFIGS:
-        send_log(node, "ERROR", f"Unknown voice: {voice_name}. Available: {list(VOICE_CONFIGS.keys())}")
+        send_log(node, "ERROR", f"Unknown voice: {voice_name}. Available: {list(VOICE_CONFIGS.keys())}", config.LOG_LEVEL)
         voice_name = "Doubao"
     
     voice_config = VOICE_CONFIGS[voice_name]
@@ -81,16 +80,16 @@ def main():
     # Initialize model manager
     model_manager = ModelManager(config.get_models_dir())
     
-    send_log(node, "INFO", "PrimeSpeech Node initialized")
+    send_log(node, "INFO", "PrimeSpeech Node initialized", config.LOG_LEVEL)
     
     if MOYOYO_AVAILABLE:
-        send_log(node, "INFO", "✓ MoYoYo TTS engine available")
+        send_log(node, "INFO", "✓ MoYoYo TTS engine available", config.LOG_LEVEL)
     else:
-        send_log(node, "WARNING", "⚠️  MoYoYo TTS not fully available")
+        send_log(node, "WARNING", "⚠️  MoYoYo TTS not fully available", config.LOG_LEVEL)
     
-    send_log(node, "INFO", f"Voice: {voice_name}")
-    send_log(node, "INFO", f"Language: {voice_config.get('text_lang', 'auto')}")
-    send_log(node, "INFO", f"Device: {config.DEVICE}")
+    send_log(node, "INFO", f"Voice: {voice_name}", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Language: {voice_config.get('text_lang', 'auto')}", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Device: {config.DEVICE}", config.LOG_LEVEL)
     
     # Initialize TTS engine
     tts_engine: Optional[MoYoYoTTSWrapper] = None
@@ -113,14 +112,14 @@ def main():
                 request_id = metadata.get("request_id", f"req_{total_syntheses}")
                 segment_index = metadata.get("segment_index", -1)
                 
-                send_log(node, "INFO", f"Processing segment {segment_index + 1} (len={len(text)})")
+                send_log(node, "INFO", f"Processing segment {segment_index + 1} (len={len(text)})", config.LOG_LEVEL)
                 
                 # Load models if not loaded
                 if not model_loaded:
-                    send_log(node, "INFO", "Loading models for the first time...")
+                    send_log(node, "INFO", "Loading models for the first time...", config.LOG_LEVEL)
                     
                     # Always use PRIMESPEECH_MODEL_DIR
-                    send_log(node, "INFO", "Using PRIMESPEECH_MODEL_DIR for models...")
+                    send_log(node, "INFO", "Using PRIMESPEECH_MODEL_DIR for models...", config.LOG_LEVEL)
                     
                     # Initialize TTS engine
                     # Convert voice name to lowercase and remove spaces for MoYoYo compatibility
@@ -136,22 +135,39 @@ def main():
                         enable_streaming=enable_streaming,
                         chunk_duration=0.3,
                         voice_config=voice_config,
-                        logger_func=lambda level, msg: send_log(node, level, msg)
+                        logger_func=lambda level, msg: send_log(node, level, msg, config.LOG_LEVEL)
                     )
                     
+                    # Check if initialization succeeded
+                    if tts_engine is None or not hasattr(tts_engine, 'tts') or tts_engine.tts is None:
+                        send_log(node, "ERROR", "TTS engine initialization failed!", config.LOG_LEVEL)
+                        send_log(node, "ERROR", "TTS wrapper exists but internal TTS is None", config.LOG_LEVEL)
+                        # Continue anyway to see what happens
+                    else:
+                        send_log(node, "INFO", "TTS engine initialized successfully", config.LOG_LEVEL)
+                    
                     model_loaded = True
-                    send_log(node, "INFO", "TTS engine ready")
+                    send_log(node, "INFO", "TTS engine ready", config.LOG_LEVEL)
                 
                 # Synthesize speech
                 start_time = time.time()
                 
                 try:
+                    # Check if TTS engine is available
+                    if tts_engine is None:
+                        send_log(node, "ERROR", "Cannot synthesize - TTS engine is None!", config.LOG_LEVEL)
+                        raise RuntimeError("TTS engine not initialized")
+                    
+                    if hasattr(tts_engine, 'tts') and tts_engine.tts is None:
+                        send_log(node, "ERROR", "Cannot synthesize - internal TTS is None!", config.LOG_LEVEL)
+                        raise RuntimeError("Internal TTS engine not initialized")
+                    
                     language = voice_config.get("text_lang", "zh")
                     speed = voice_config.get("speed_factor", 1.0)
                     
                     if hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming:
                         # Streaming synthesis
-                        send_log(node, "INFO", "Using streaming synthesis...")
+                        send_log(node, "INFO", "Using streaming synthesis...", config.LOG_LEVEL)
                         fragment_num = 0
                         total_audio_duration = 0
                         
@@ -177,7 +193,7 @@ def main():
                             )
                         
                         synthesis_time = time.time() - start_time
-                        send_log(node, "INFO", f"Streamed {fragment_num} fragments, {total_audio_duration:.2f}s audio in {synthesis_time:.3f}s")
+                        send_log(node, "INFO", f"Streamed {fragment_num} fragments, {total_audio_duration:.2f}s audio in {synthesis_time:.3f}s", config.LOG_LEVEL)
                         
                     else:
                         # Batch synthesis
@@ -189,7 +205,7 @@ def main():
                         total_syntheses += 1
                         total_duration += audio_duration
                         
-                        send_log(node, "INFO", f"Synthesized: {audio_duration:.2f}s audio in {synthesis_time:.3f}s")
+                        send_log(node, "INFO", f"Synthesized: {audio_duration:.2f}s audio in {synthesis_time:.3f}s", config.LOG_LEVEL)
                         
                         # Send audio output
                         node.send_output(
@@ -218,13 +234,13 @@ def main():
                             "segment_index": segment_index
                         }
                     )
-                    send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}")
+                    send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)
                     
                 except Exception as e:
                     import traceback
                     error_details = traceback.format_exc()
-                    send_log(node, "ERROR", f"Synthesis error: {e}")
-                    send_log(node, "ERROR", f"Traceback: {error_details}")
+                    send_log(node, "ERROR", f"Synthesis error: {e}", config.LOG_LEVEL)
+                    send_log(node, "ERROR", f"Traceback: {error_details}", config.LOG_LEVEL)
                     
                     # Send empty audio on error
                     node.send_output(
@@ -249,26 +265,26 @@ def main():
                             "error": str(e)
                         }
                     )
-                    send_log(node, "ERROR", f"Sent error segment_complete for segment {segment_index + 1}")
+                    send_log(node, "ERROR", f"Sent error segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)
             
             elif input_id == "control":
                 # Handle control commands
                 command = event["value"][0].as_py()
                 
                 if command == "reset":
-                    send_log(node, "INFO", "[PrimeSpeech] RESET received")
+                    send_log(node, "INFO", "[PrimeSpeech] RESET received", config.LOG_LEVEL)
                     # Note: Can't actually stop ongoing synthesis, but it's OK
                     # because we only process one segment at a time now
-                    send_log(node, "INFO", "[PrimeSpeech] Reset acknowledged")
+                    send_log(node, "INFO", "[PrimeSpeech] Reset acknowledged", config.LOG_LEVEL)
                 
                 elif command == "stats":
-                    send_log(node, "INFO", f"Total syntheses: {total_syntheses}")
-                    send_log(node, "INFO", f"Total audio duration: {total_duration:.1f}s")
+                    send_log(node, "INFO", f"Total syntheses: {total_syntheses}", config.LOG_LEVEL)
+                    send_log(node, "INFO", f"Total audio duration: {total_duration:.1f}s", config.LOG_LEVEL)
         
         elif event["type"] == "STOP":
             break
     
-    send_log(node, "INFO", "PrimeSpeech node stopped")
+    send_log(node, "INFO", "PrimeSpeech node stopped", config.LOG_LEVEL)
 
 
 if __name__ == "__main__":

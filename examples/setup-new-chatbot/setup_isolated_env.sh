@@ -2,7 +2,8 @@
 
 # Dora Voice Chat - Isolated Environment Setup
 # Creates a fresh Python environment with all required Dora nodes
-# No conflicts with existing Python installations
+# Uses standardized dependency versions to avoid conflicts
+# See DEPENDENCIES.md for detailed dependency specifications
 
 set -e  # Exit on error
 
@@ -189,12 +190,13 @@ install_dependencies() {
     
     # Install critical dependencies with specific versions
     print_info "Installing core dependencies..."
-    pip install numpy==1.26.4  # Critical for compatibility
-    pip install torch==2.2.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    # Install standardized versions (see DEPENDENCIES.md)
+    pip install numpy==1.26.4  # Voice chat pipeline standard (1.x compatibility)
+    pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cpu
     
     # Install transformers and related packages
     print_info "Installing ML libraries..."
-    pip install transformers==4.36.2
+    pip install transformers==4.45.0  # Voice chat pipeline standard (security compliant)
     pip install huggingface-hub==0.17.3
     pip install datasets accelerate sentencepiece protobuf
     
@@ -300,7 +302,7 @@ fix_numpy_compatibility() {
     print_header "Fixing NumPy Compatibility"
     
     print_info "Ensuring numpy 1.26.4 is installed..."
-    pip install numpy==1.26.4 --force-reinstall
+    pip install numpy==1.26.4 --force-reinstall  # Ensure 1.x compatibility
     
     print_success "NumPy compatibility fixed"
 }

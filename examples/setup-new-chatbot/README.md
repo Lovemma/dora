@@ -5,12 +5,14 @@ This directory provides a comprehensive setup script for creating an isolated Py
 ## What This Setup Does
 
 1. **Creates an isolated conda environment** with Python 3.12
-2. **Installs all required dependencies** with correct versions
-3. **Installs all Dora nodes** from the node-hub directory
-4. **Fixes numpy compatibility issues** (ensures numpy 1.26.4)
+2. **Installs all required dependencies** with standardized versions
+3. **Installs all Dora nodes** from the node-hub directory with consistent dependency ranges
+4. **Ensures compatibility** across all voice chat pipeline nodes
 5. **Links system dora CLI** if available (version 0.3.12)
 6. **Builds Rust nodes** if cargo is installed
 7. **Runs validation tests** to ensure everything works
+
+📋 **For detailed dependency information, see [DEPENDENCIES.md](./DEPENDENCIES.md)**
 
 ## Prerequisites
 
@@ -52,11 +54,13 @@ The script will:
 - `dora-maas-client` - Cloud AI integration
 - `dora-openai-websocket` - WebSocket server for real-time communication
 
-### Key Dependencies
-- `numpy==1.26.4` - Critical version for compatibility
-- `torch==2.2.0` - PyTorch for ML models
-- `transformers==4.36.2` - Hugging Face transformers
-- `dora-rs==0.3.6` - Dora Python bindings
+### Key Dependencies (Standardized)
+- `numpy>=1.21.0,<2.0` - Pin to 1.x for compiled package compatibility
+- `torch>=2.0.0,<2.3.0` - PyTorch ecosystem (voice pipeline standard)
+- `transformers>=4.40.0,<4.50.0` - Security compliant (CVE-2025-32434 fix)
+- `dora-rs>=0.3.7` - Dora Python bindings
+
+📋 **For complete dependency specifications, see [DEPENDENCIES.md](./DEPENDENCIES.md)**
 
 ## After Setup
 

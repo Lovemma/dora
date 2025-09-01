@@ -8,12 +8,12 @@ description = "Real-time speech monitoring node with Silero VAD for Dora"
 readme = "README.md"
 
 dependencies = [
-    "dora-rs",
-    "numpy",
-    "pyarrow",
-    "torch",
-    "torchaudio",
-    "silero-vad",
+    "dora-rs>=0.3.7",
+    "numpy>=1.21.0,<2.0",  # Voice chat pipeline standard
+    "pyarrow>=10.0.0",
+    "torch>=2.0.0,<2.3.0",  # Voice chat pipeline standard
+    "torchaudio>=2.0.0,<2.3.0",  # Match torch version range
+    "silero-vad>=5.1",
 ]
 
 [project.scripts]

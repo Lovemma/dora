@@ -30,7 +30,7 @@ nodes:
       ENABLE_PUNCTUATION: true
       ENABLE_LANGUAGE_DETECTION: true
       ENABLE_CONFIDENCE_SCORE: false
-      ASR_MODELS_DIR: ~/.dora/models/asr # Relative path (recommended)
+      ASR_MODELS_DIR: /Users/yuechen/.dora/models/asr # Relative path (recommended)
       # ASR_MODELS_DIR: ~/.cache/modelscope/hub/models/iic  # Modelscope cache location
       # If not set, defaults to ~/.dora/models/asr (which has the models)
       LOG_LEVEL: INFO
@@ -114,9 +114,13 @@ nodes:
       - log
 
     env:
+      # Allow transformers to load models (temporary workaround for CVE-2025-32434)
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      
       # Voice selection
       VOICE_NAME: Doubao  # Available: Doubao, Luo Xiang, Yang Mi, Zhou Jielun, Ma Yun, Maple, Cove
-      PRIMESPEECH_MODEL_DIR: ~/.dora/models/primespeech
+      PRIMESPEECH_MODEL_DIR: /Users/yuechen/.dora/models/primespeech
       # Language settings
       TEXT_LANG: zh  # zh for Chinese, en for English, auto for detection
       PROMPT_LANG: zh  # Language of the reference prompt

@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def send_log(node, level, message):
+def send_log(node, level, message, config_level="INFO"):
     """Send log message through log output channel."""
     LOG_LEVELS = {
         "DEBUG": 10,
@@ -34,7 +34,6 @@ def send_log(node, level, message):
         "ERROR": 40
     }
     
-    config_level = PrimeSpeechConfig.LOG_LEVEL
     if LOG_LEVELS.get(level, 0) < LOG_LEVELS.get(config_level, 20):
         return
     

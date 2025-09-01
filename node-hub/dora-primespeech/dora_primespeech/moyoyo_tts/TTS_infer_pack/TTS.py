@@ -299,20 +299,38 @@ class TTS:
 
     def init_cnhuhbert_weights(self, base_path: str):
         print(f"Loading CNHuBERT weights from {base_path}")
-        self.cnhuhbert_model = CNHubert(base_path)
-        self.cnhuhbert_model = self.cnhuhbert_model.eval()
-        self.cnhuhbert_model = self.cnhuhbert_model.to(self.configs.device)
-        if self.configs.is_half and str(self.configs.device) != "cpu":
-            self.cnhuhbert_model = self.cnhuhbert_model.half()
+        try:
+            self.cnhuhbert_model = CNHubert(base_path)
+            self.cnhuhbert_model = self.cnhuhbert_model.eval()
+            self.cnhuhbert_model = self.cnhuhbert_model.to(self.configs.device)
+            if self.configs.is_half and str(self.configs.device) != "cpu":
+                self.cnhuhbert_model = self.cnhuhbert_model.half()
+            print(f"CNHuBERT model loaded successfully")
+        except Exception as e:
+            print(f"ERROR: Failed to load CNHuBERT model: {e}")
+            print(f"Continuing without CNHuBERT model - may affect quality")
+            self.cnhuhbert_model = None
 
     def init_bert_weights(self, base_path: str):
         print(f"Loading BERT weights from {base_path}")
-        self.bert_tokenizer = AutoTokenizer.from_pretrained(base_path)
-        self.bert_model = AutoModelForMaskedLM.from_pretrained(base_path)
-        self.bert_model = self.bert_model.eval()
-        self.bert_model = self.bert_model.to(self.configs.device)
-        if self.configs.is_half and str(self.configs.device) != "cpu":
-            self.bert_model = self.bert_model.half()
+        try:
+            self.bert_tokenizer = AutoTokenizer.from_pretrained(base_path)
+            # Try to load with trust_remote_code and local_files_only to bypass security check
+            self.bert_model = AutoModelForMaskedLM.from_pretrained(
+                base_path,
+                local_files_only=True,
+                trust_remote_code=True
+            )
+            self.bert_model = self.bert_model.eval()
+            self.bert_model = self.bert_model.to(self.configs.device)
+            if self.configs.is_half and str(self.configs.device) != "cpu":
+                self.bert_model = self.bert_model.half()
+            print(f"BERT model loaded successfully")
+        except Exception as e:
+            print(f"ERROR: Failed to load BERT model: {e}")
+            print(f"Continuing without BERT model - may affect quality")
+            self.bert_model = None
+            self.bert_tokenizer = None
 
     def init_vits_weights(self, weights_path: str):
         print(f"Loading VITS weights from {weights_path}")
