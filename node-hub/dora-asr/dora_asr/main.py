@@ -19,13 +19,14 @@ from .utils import (
 )
 
 
-def send_log(node, level, message):
+def send_log(node, level, message, config_level="INFO"):
     """Send log message through log output channel.
     
     Args:
         node: Dora node instance
         level: Log level (DEBUG, INFO, WARNING, ERROR)
         message: Log message
+        config_level: Configured log level (default INFO)
     """
     # Define log level hierarchy
     LOG_LEVELS = {
@@ -34,10 +35,6 @@ def send_log(node, level, message):
         "WARNING": 30,
         "ERROR": 40
     }
-    
-    # Get configured log level
-    from .config import ASRConfig
-    config_level = ASRConfig.LOG_LEVEL
     
     # Check if message should be logged
     if LOG_LEVELS.get(level, 0) < LOG_LEVELS.get(config_level, 20):
@@ -64,12 +61,12 @@ def main():
     manager = ASRManager(node)  # Pass node for logging
     
     # Send initialization logs
-    send_log(node, "INFO", "ASR Node initialized")
-    send_log(node, "INFO", f"Engine: {config.ASR_ENGINE}")
-    send_log(node, "INFO", f"Language: {config.LANGUAGE}")
-    send_log(node, "INFO", f"Log level: {config.LOG_LEVEL}")
-    send_log(node, "DEBUG", f"Punctuation: {config.ENABLE_PUNCTUATION}")
-    send_log(node, "DEBUG", f"Models directory: {config.get_models_dir()}")
+    send_log(node, "INFO", "ASR Node initialized", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Engine: {config.ASR_ENGINE}", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Language: {config.LANGUAGE}", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Log level: {config.LOG_LEVEL}", config.LOG_LEVEL)
+    send_log(node, "DEBUG", f"Punctuation: {config.ENABLE_PUNCTUATION}", config.LOG_LEVEL)
+    send_log(node, "DEBUG", f"Models directory: {config.get_models_dir()}", config.LOG_LEVEL)
     
     # Statistics
     total_segments = 0
@@ -93,16 +90,16 @@ def main():
                 audio_stats = calculate_audio_stats(audio_array)
                 duration = audio_stats['duration']
                 
-                send_log(node, "INFO", f"Processing segment #{segment_num}")
-                send_log(node, "DEBUG", f"   Duration: {duration:.2f}s")
-                send_log(node, "DEBUG", f"   Task ID: {task_id[:8]}...")
+                send_log(node, "INFO", f"Processing segment #{segment_num}", config.LOG_LEVEL)
+                send_log(node, "DEBUG", f"   Duration: {duration:.2f}s", config.LOG_LEVEL)
+                send_log(node, "DEBUG", f"   Task ID: {task_id[:8]}...", config.LOG_LEVEL)
                 
                 start_time = time.time()
                 
                 try:
                     # Check if audio is too long and needs splitting
                     if duration > config.MAX_AUDIO_DURATION:
-                        send_log(node, "WARNING", f"Audio too long ({duration:.1f}s), splitting...")
+                        send_log(node, "WARNING", f"Audio too long ({duration:.1f}s), splitting...", config.LOG_LEVEL)
                         
                         # Split into chunks
                         chunks = split_audio_for_long_transcription(
@@ -115,7 +112,7 @@ def main():
                         # Transcribe each chunk
                         transcribed_chunks = []
                         for i, chunk_data in enumerate(chunks):
-                            send_log(node, "DEBUG", f"Processing chunk {i+1}/{len(chunks)}...")
+                            send_log(node, "DEBUG", f"Processing chunk {i+1}/{len(chunks)}...", config.LOG_LEVEL)
                             result = manager.transcribe(
                                 chunk_data['audio'],
                                 language=config.LANGUAGE
@@ -150,13 +147,13 @@ def main():
                     
                     # Skip empty transcriptions
                     if not full_text.strip():
-                        send_log(node, "WARNING", "Empty transcription")
+                        send_log(node, "WARNING", "Empty transcription", config.LOG_LEVEL)
                         continue
                     
-                    send_log(node, "INFO", f"Transcribed: {full_text[:100]}...")
-                    send_log(node, "INFO", f"Language: {detected_language}")
-                    send_log(node, "DEBUG", f"Processing time: {processing_time:.3f}s")
-                    send_log(node, "DEBUG", f"Speed: {duration/processing_time:.1f}x realtime")
+                    send_log(node, "INFO", f"Transcribed: {full_text[:100]}...", config.LOG_LEVEL)
+                    send_log(node, "INFO", f"Language: {detected_language}", config.LOG_LEVEL)
+                    send_log(node, "DEBUG", f"Processing time: {processing_time:.3f}s", config.LOG_LEVEL)
+                    send_log(node, "DEBUG", f"Speed: {duration/processing_time:.1f}x realtime", config.LOG_LEVEL)
                     
                     # Send transcription output
                     node.send_output(
@@ -198,7 +195,7 @@ def main():
                         )
                     
                 except Exception as e:
-                    send_log(node, "ERROR", f"Transcription error: {e}")
+                    send_log(node, "ERROR", f"Transcription error: {e}", config.LOG_LEVEL)
                     
                     # Send empty transcription on error
                     node.send_output(
@@ -216,17 +213,17 @@ def main():
                 
                 if command == "stats":
                     # Report statistics
-                    send_log(node, "INFO", "ASR Statistics:")
-                    send_log(node, "INFO", f"Total segments: {total_segments}")
-                    send_log(node, "INFO", f"Total duration: {total_duration:.1f}s")
+                    send_log(node, "INFO", "ASR Statistics:", config.LOG_LEVEL)
+                    send_log(node, "INFO", f"Total segments: {total_segments}", config.LOG_LEVEL)
+                    send_log(node, "INFO", f"Total duration: {total_duration:.1f}s", config.LOG_LEVEL)
                     if total_segments > 0:
-                        send_log(node, "INFO", f"Average duration: {total_duration/total_segments:.1f}s")
+                        send_log(node, "INFO", f"Average duration: {total_duration/total_segments:.1f}s", config.LOG_LEVEL)
                 
                 elif command == "cleanup":
                     # Cleanup resources
-                    send_log(node, "INFO", "Cleaning up ASR engines...")
+                    send_log(node, "INFO", "Cleaning up ASR engines...", config.LOG_LEVEL)
                     manager.cleanup()
-                    send_log(node, "INFO", "Cleanup complete")
+                    send_log(node, "INFO", "Cleanup complete", config.LOG_LEVEL)
 
 
 if __name__ == "__main__":

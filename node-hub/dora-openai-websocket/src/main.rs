@@ -267,6 +267,7 @@ fn replace_placeholder_in_file(
     Ok(())
 }
 
+
 async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     println!("WebSocket client connected, waiting for upgrade completion");
     let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
@@ -309,27 +310,49 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let llm = session.model.clone();
     println!("Session config - Transcription: {}, LLM: {}", input_audio_transcription, llm);
     
+    // Accept any model name from moly, but log what we're actually using
+    println!("Client requested model: {}", llm);
+    if llm.contains("Qwen") || llm.contains("GGUF") {
+        println!("Note: Client requested a Qwen/GGUF model, will use whatever is configured in the template");
+    }
+    
     let id = random::<u16>();
     let node_id = format!("server-{id}");
     let dataflow = format!("{input_audio_transcription}-{}.yml", id);
-    let template = format!("{input_audio_transcription}-template-metal.yml");
+    let mut template = format!("{input_audio_transcription}-template-metal.yml");
     
     println!("Looking for template file: {}", template);
     if !std::path::Path::new(&template).exists() {
-        println!("ERROR: Template file not found: {}", template);
-        println!("Available template files:");
-        if let Ok(entries) = std::fs::read_dir(".") {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("yml") 
-                        && path.to_string_lossy().contains("template") {
-                        println!("  - {}", path.display());
+        println!("WARNING: Template file not found: {}", template);
+        // Try to find any available template as fallback
+        let fallback_template = "whisper-template-metal.yml";
+        if std::path::Path::new(fallback_template).exists() {
+            println!("Using fallback template: {}", fallback_template);
+            template = fallback_template.to_string();
+        } else {
+            println!("Available template files:");
+            if let Ok(entries) = std::fs::read_dir(".") {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("yml") 
+                            && path.to_string_lossy().contains("template") {
+                            println!("  - {}", path.display());
+                            // Use the first template we find as fallback
+                            if template == format!("{input_audio_transcription}-template-metal.yml") {
+                                template = path.to_string_lossy().to_string();
+                                println!("Using fallback template: {}", template);
+                            }
+                        }
                     }
                 }
             }
+            // If still no template found, return error
+            if !std::path::Path::new(&template).exists() {
+                println!("ERROR: No template files found!");
+                return Err(WebSocketError::InvalidConnectionHeader);
+            }
         }
-        return Err(WebSocketError::InvalidConnectionHeader);
     }
     
     let mut replacements = HashMap::new();
@@ -339,21 +362,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     replace_placeholder_in_file(&template, &replacements, &dataflow).unwrap();
     // Copy configuration file but replace the node ID with "server-id"
     // Read the configuration file and replace the node ID with "server-id"
-    println!("Starting dataflow: {}", dataflow);
-    // Use dora_cli's public run_func to start the dataflow
-    match dora_cli::run_func(dataflow.clone(), true) {
-        Ok(_) => println!("Dataflow '{}' started successfully", dataflow),
-        Err(e) => {
-            println!("ERROR: Failed to start dataflow '{}': {:?}", dataflow, e);
-            return Err(WebSocketError::InvalidConnectionHeader);
-        }
-    }
-    let (mut node, mut events) =
-        DoraNode::init_from_node_id(NodeId::from(node_id.clone())).unwrap();
-    println!("Dora node initialized successfully as '{}'", node_id);
-    
-    // Send back the session configuration to acknowledge the session was created
-    // The client expects this to know the session is ready
+    // Send session responses FIRST before starting dataflow
+    // This allows moly to transition from "connecting" to "listening"
     let session_response = serde_json::json!({
         "id": format!("session_{}", id),
         "object": "realtime.session",
@@ -390,6 +400,75 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let frame_updated = Frame::text(payload_updated);
     println!("Sending session.updated acknowledgment to client");
     ws.write_frame(frame_updated).await?;
+    
+    // Start the dataflow using dora CLI with the node_id as the name
+    // This is critical - passing the node_id as --name allows the websocket server to connect as that node
+    println!("Starting dataflow {} with name {}", dataflow, node_id);
+    let output = std::process::Command::new("dora")
+        .arg("start")
+        .arg(&dataflow)
+        .arg("--name")
+        .arg(&node_id)
+        .arg("--detach")
+        .output()
+        .expect("Failed to execute dora start command");
+    
+    if !output.status.success() {
+        eprintln!("Failed to start dataflow: {}", String::from_utf8_lossy(&output.stderr));
+        ws.write_frame(Frame::close(1011, b"Failed to start dataflow")).await?;
+        return Err(WebSocketError::InvalidConnectionHeader);
+    }
+    
+    println!("Dataflow started successfully");
+    println!("Dora start output: {}", String::from_utf8_lossy(&output.stdout));
+    
+    // Wait for dataflow to be fully initialized  
+    println!("Waiting for dataflow to initialize...");
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    
+    // Now try to initialize the Dora node in a separate task to avoid blocking
+    println!("Attempting to initialize Dora node with ID: {}", node_id);
+    let node_id_clone = node_id.clone();
+    let node_init_handle = tokio::task::spawn_blocking(move || {
+        DoraNode::init_from_node_id(NodeId::from(node_id_clone))
+    });
+    
+    // Try to get the node, but don't block if it fails
+    let (mut node, mut events) = match tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        node_init_handle
+    ).await {
+        Ok(Ok(Ok((n, e)))) => {
+            println!("Dora node initialized successfully as '{}'", node_id);
+            (n, e)
+        },
+        Ok(Ok(Err(e))) => {
+            println!("WARNING: Failed to initialize Dora node '{}': {:?}", node_id, e);
+            println!("Continuing without Dora node connection - audio forwarding will not work");
+            // Just maintain the websocket connection
+            loop {
+                match ws.read_frame().await {
+                    Ok(frame) if frame.opcode == OpCode::Close => break,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+            return Ok(());
+        },
+        Ok(Err(_)) | Err(_) => {
+            println!("WARNING: Dora node initialization timed out or panicked for '{}'", node_id);
+            println!("Continuing without Dora node connection - audio forwarding will not work");
+            // Just maintain the websocket connection
+            loop {
+                match ws.read_frame().await {
+                    Ok(frame) if frame.opcode == OpCode::Close => break,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+            return Ok(());
+        }
+    };
     
     // Create resampler with fixed buffer size for microphone input
     const DOWNSAMPLE_CHUNK_SIZE: usize = 4800; // 200ms at 24kHz

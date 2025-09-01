@@ -9,15 +9,10 @@ __author__ = "Dora PrimeSpeech Contributors"
 
 from .config import PrimeSpeechConfig
 
-# Try to use standalone version first
-try:
-    from .main_standalone import main
-    from .gpt_sovits_engine import GPTSoVITSEngine
-    print("[PrimeSpeech] Using standalone implementation")
-except ImportError:
-    # Fallback to original if standalone not available
-    from .main import main
-    GPTSoVITSEngine = None
-    print("[PrimeSpeech] Using original implementation")
+# Always use the main implementation with MoYoYo TTS
+# No fallback - we want real TTS, not placeholder audio
+from .main import main
+print("[PrimeSpeech] Using MoYoYo TTS implementation")
+GPTSoVITSEngine = None
 
 __all__ = ["PrimeSpeechConfig", "main", "GPTSoVITSEngine"]

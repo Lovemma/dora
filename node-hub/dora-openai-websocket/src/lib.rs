@@ -319,14 +319,40 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     replacements.insert("LLM_ID".to_string(), llm);
     println!("Filling template: {}", template);
     replace_placeholder_in_file(&template, &replacements, &dataflow).unwrap();
-    // Copy configuration file but replace the node ID with "server-id"
-    // Read the configuration file and replace the node ID with "server-id"
-    // Use dora_cli's public run_func to start the dataflow
-    // Note: run_func expects a dataflow path string and uv flag
-    dora_cli::run_func(dataflow.clone(), true)
-        .expect("Failed to start dataflow");
-    let (mut node, mut events) =
-        DoraNode::init_from_node_id(NodeId::from(node_id.clone())).unwrap();
+    // Start the dataflow using dora CLI with the node_id as the name
+    println!("Starting dataflow {} with name {}", dataflow, node_id);
+    let output = std::process::Command::new("dora")
+        .arg("start")
+        .arg(&dataflow)
+        .arg("--name")
+        .arg(&node_id)
+        .arg("--detach")
+        .output()
+        .expect("Failed to execute dora start command");
+    
+    if !output.status.success() {
+        eprintln!("Failed to start dataflow: {}", String::from_utf8_lossy(&output.stderr));
+        ws.write_frame(Frame::close(1011, b"Failed to start dataflow")).await?;
+        return Err(WebSocketError::InvalidConnectionHeader);
+    }
+    
+    println!("Dataflow started successfully");
+    
+    // Wait for dataflow to be fully initialized
+    println!("Waiting for dataflow to initialize...");
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    
+    let (mut node, mut events) = match DoraNode::init_from_node_id(NodeId::from(node_id.clone())) {
+        Ok((n, e)) => {
+            println!("Successfully connected as dynamic node: {}", node_id);
+            (n, e)
+        }
+        Err(e) => {
+            eprintln!("Failed to connect as dynamic node {}: {:?}", node_id, e);
+            ws.write_frame(Frame::close(1011, b"Server error - failed to connect to dataflow")).await?;
+            return Err(WebSocketError::InvalidConnectionHeader);
+        }
+    };
     let serialized_data = OpenAIRealtimeResponse::SessionCreated {
         session: serde_json::Value::Null,
     };

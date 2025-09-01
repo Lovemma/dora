@@ -10,6 +10,8 @@ requires-python = ">=3.9"
 dependencies = [
   "dora-rs >= 0.3.9",
   "pyarrow >= 10.0.0",
+  "numpy>=1.21.0,<2.0",  # Pin to 1.x for compatibility
+  "transformers>=4.40.0,<4.50.0",  # Compatible with both security and MLX requirements
   "huggingface-hub >= 0.20.0",
   "llama-cpp-python",
   "mlx>=0.5.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
