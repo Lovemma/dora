@@ -36,97 +36,97 @@ except ImportError:
     from huggingface_hub.utils import RepositoryNotFoundError
     HF_AVAILABLE = True
 
-# Define voice configurations directly (no dependency on PrimeSpeech)
+# Define voice configurations based on actual repository structure
 VOICE_CONFIGS = {
     "Doubao": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Doubao_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Doubao_models/s2G488k.pth",
-        "reference_audio": "Doubao_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
+        "reference_audio": "ref_audios/doubao_ref.wav",
         "text_lang": "zh"
     },
     "Luo Xiang": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Luo_Xiang_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Luo_Xiang_models/s2G488k.pth",
-        "reference_audio": "Luo_Xiang_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/luoxiang_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/luoxiang_best_sovits.pth",
+        "reference_audio": "ref_audios/luoxiang_ref.wav",
         "text_lang": "zh"
     },
     "Yang Mi": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Yang_Mi_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Yang_Mi_models/s2G488k.pth",
-        "reference_audio": "Yang_Mi_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/yangmi_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/yangmi_best_sovits.pth",
+        "reference_audio": "ref_audios/yangmi_ref.wav",
         "text_lang": "zh"
     },
     "Zhou Jielun": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Zhou_Jielun_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Zhou_Jielun_models/s2G488k.pth",
-        "reference_audio": "Zhou_Jielun_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/zhoujielun_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/zhoujielun_best_sovits.pth",
+        "reference_audio": "ref_audios/zhoujielun_ref.wav",
         "text_lang": "zh"
     },
     "Ma Yun": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Ma_Yun_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Ma_Yun_models/s2G488k.pth",
-        "reference_audio": "Ma_Yun_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/mayun_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/mayun_best_sovits.pth",
+        "reference_audio": "ref_audios/mayun_ref.wav",
         "text_lang": "zh"
     },
     "Maple": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Maple_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Maple_models/s2G488k.pth",
-        "reference_audio": "Maple_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/maple_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/maple_best_sovits.pth",
+        "reference_audio": "ref_audios/maple_ref.wav",
         "text_lang": "en"
     },
     "Cove": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Cove_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Cove_models/s2G488k.pth",
-        "reference_audio": "Cove_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/cove_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/cove_best_sovits.pth",
+        "reference_audio": "ref_audios/cove_ref.wav",
         "text_lang": "en"
     },
     "BYS": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "BYS_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "BYS_models/s2G488k.pth",
-        "reference_audio": "BYS_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/bys_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/bys_best_sovits.pth",
+        "reference_audio": "ref_audios/bys_ref.wav",
         "text_lang": "zh"
     },
     "Ellen": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Ellen_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Ellen_models/s2G488k.pth",
-        "reference_audio": "Ellen_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/ellen_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/ellen_best_sovits.pth",
+        "reference_audio": "ref_audios/ellen_ref.wav",
         "text_lang": "en"
     },
     "Juniper": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Juniper_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Juniper_models/s2G488k.pth",
-        "reference_audio": "Juniper_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/juniper_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/juniper_best_sovits.pth",
+        "reference_audio": "ref_audios/juniper_ref.wav",
         "text_lang": "en"
     },
     "Ma Baoguo": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Ma_Baoguo_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Ma_Baoguo_models/s2G488k.pth",
-        "reference_audio": "Ma_Baoguo_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/mabaoguo_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/mabaoguo_best_sovits.pth",
+        "reference_audio": "ref_audios/mabaoguo_ref.wav",
         "text_lang": "zh"
     },
     "Shen Yi": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Shen_Yi_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Shen_Yi_models/s2G488k.pth",
-        "reference_audio": "Shen_Yi_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/shenyi_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/shenyi_best_sovits.pth",
+        "reference_audio": "ref_audios/shenyi_ref.wav",
         "text_lang": "zh"
     },
     "Trump": {
         "repository": "MoYoYoTech/tone-models",
-        "gpt_weights": "Trump_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-        "sovits_weights": "Trump_models/s2G488k.pth",
-        "reference_audio": "Trump_models/ref_audio.wav",
+        "gpt_weights": "GPT_weights/trump_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/trump_best_sovits.pth",
+        "reference_audio": "ref_audios/trump_ref.wav",
         "text_lang": "en"
     }
 }
@@ -1305,15 +1305,26 @@ def main():
             success = download_g2pw_model()
             if not success:
                 sys.exit(1)
+        elif args.download == "primespeech":
+            # Download all PrimeSpeech voices
+            success = download_voice_models("all", models_dir)
+            if not success:
+                sys.exit(1)
+        elif args.download in VOICE_CONFIGS:
+            # Download specific voice
+            success = download_voice_models(args.download, models_dir)
+            if not success:
+                sys.exit(1)
         else:
-            # Treat as voice name
-            success = download_voice_models(args.download, models_dir)
-            if not success:
-                sys.exit(1)
-            # Treat as voice name
-            success = download_voice_models(args.download, models_dir)
-            if not success:
-                sys.exit(1)
+            print(f"❌ Unknown model to download: {args.download}")
+            print("   Valid options:")
+            print("   - 'funasr' for FunASR models")
+            print("   - 'primespeech' for all PrimeSpeech voices")
+            print("   - 'primespeech-base' for PrimeSpeech base models")
+            print("   - 'g2pw' for G2PW model")
+            print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
+            print("   - HuggingFace repo ID (e.g., 'organization/model')")
+            sys.exit(1)
     
     # Handle --remove argument
     elif args.remove:
@@ -1393,11 +1404,13 @@ def main():
         print("  # List downloaded models:")
         print("  python download_models.py --list")
         
-        print("\n  # PrimeSpeech models:")
-        print("  python download_models.py --download primespeech-base")
-        print("  python download_models.py --voice Doubao")
-        print("  python download_models.py --voice all")
-        print("  python download_models.py --list-voices")
+        print("\n  # PrimeSpeech TTS models:")
+        print("  python download_models.py --download primespeech       # Download all voices")
+        print("  python download_models.py --download primespeech-base  # Download base models only")
+        print("  python download_models.py --download Doubao           # Download specific voice")
+        print("  python download_models.py --voice all                 # Download all voices (alternative)")
+        print("  python download_models.py --voice \"Luo Xiang\"         # Download specific voice (alternative)")
+        print("  python download_models.py --list-voices               # List available voices")
         
         print("\n  # Remove models:")
         print("  python download_models.py --remove mlx-community/gemma-3-12b-it-4bit")

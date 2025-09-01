@@ -9,31 +9,35 @@ from pathlib import Path
 class ASRConfig:
     """ASR configuration class"""
     
-    # Engine selection
-    ASR_ENGINE = os.getenv("ASR_ENGINE", "auto")  # auto/whisper/funasr
-    LANGUAGE = os.getenv("LANGUAGE", "auto")  # auto/zh/en
-    
-    # Model configuration
-    WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium-q5_0")
-    FUNASR_ASR_MODEL = os.getenv("FUNASR_ASR_MODEL", "speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch")
-    FUNASR_PUNC_MODEL = os.getenv("FUNASR_PUNC_MODEL", "punc_ct-transformer_cn-en-common-vocab471067-large")
-    
-    # Audio processing
-    MIN_AUDIO_DURATION = float(os.getenv("MIN_AUDIO_DURATION", "0.5"))  # seconds
-    MAX_AUDIO_DURATION = float(os.getenv("MAX_AUDIO_DURATION", "30"))  # seconds
-    SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))
-    
-    # Features
-    ENABLE_PUNCTUATION = os.getenv("ENABLE_PUNCTUATION", "true").lower() == "true"
-    ENABLE_LANGUAGE_DETECTION = os.getenv("ENABLE_LANGUAGE_DETECTION", "true").lower() == "true"
-    ENABLE_CONFIDENCE_SCORE = os.getenv("ENABLE_CONFIDENCE_SCORE", "false").lower() == "true"
-    
-    # Performance
-    USE_GPU = os.getenv("USE_GPU", "false").lower() == "true"
-    NUM_THREADS = int(os.getenv("NUM_THREADS", "4"))
-    
-    # Logging
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # DEBUG, INFO, WARNING, ERROR
+    def __init__(self):
+        # Engine selection
+        self.ASR_ENGINE = os.getenv("ASR_ENGINE", "auto")  # auto/whisper/funasr
+        self.LANGUAGE = os.getenv("LANGUAGE", "auto")  # auto/zh/en
+        
+        # Model configuration
+        self.WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium-q5_0")
+        self.FUNASR_ASR_MODEL = os.getenv("FUNASR_ASR_MODEL", "speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch")
+        self.FUNASR_PUNC_MODEL = os.getenv("FUNASR_PUNC_MODEL", "punc_ct-transformer_cn-en-common-vocab471067-large")
+        
+        # Audio processing
+        self.MIN_AUDIO_DURATION = float(os.getenv("MIN_AUDIO_DURATION", "0.5"))  # seconds
+        self.MAX_AUDIO_DURATION = float(os.getenv("MAX_AUDIO_DURATION", "30"))  # seconds
+        self.SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))
+        
+        # Features
+        self.ENABLE_PUNCTUATION = os.getenv("ENABLE_PUNCTUATION", "true").lower() == "true"
+        self.ENABLE_LANGUAGE_DETECTION = os.getenv("ENABLE_LANGUAGE_DETECTION", "true").lower() == "true"
+        self.ENABLE_CONFIDENCE_SCORE = os.getenv("ENABLE_CONFIDENCE_SCORE", "false").lower() == "true"
+        
+        # Performance
+        self.USE_GPU = os.getenv("USE_GPU", "false").lower() == "true"
+        self.NUM_THREADS = int(os.getenv("NUM_THREADS", "4"))
+        
+        # FunASR specific settings
+        self.FUNASR_DISABLE_UPDATE = os.getenv("FUNASR_DISABLE_UPDATE", "true").lower() == "true"
+        
+        # Logging
+        self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # DEBUG, INFO, WARNING, ERROR
     
     # Model paths
     @staticmethod
@@ -50,7 +54,8 @@ class ASRConfig:
         default_dir.mkdir(parents=True, exist_ok=True)
         return default_dir
     
-    # Language mappings
+        
+    # Language mappings (class variable)
     LANGUAGE_TO_ENGINE = {
         'zh': 'funasr',   # Chinese optimized with FunASR
         'en': 'whisper',  # English with Whisper

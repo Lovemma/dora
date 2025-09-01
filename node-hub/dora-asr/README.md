@@ -71,6 +71,7 @@ env:
   FUNASR_MODEL: paraformer-zh  # Model name
   FUNASR_VAD_MODEL: fsmn-vad   # VAD model
   FUNASR_PUNC_MODEL: ct-punc   # Punctuation model
+  FUNASR_DISABLE_UPDATE: true  # Disable model update checks (speeds up loading)
   
   # Processing options
   ENABLE_PUNCTUATION: true
@@ -127,6 +128,7 @@ nodes:
       LANGUAGE: auto
       WHISPER_MODEL: small
       ENABLE_PUNCTUATION: true
+      FUNASR_DISABLE_UPDATE: true  # Speeds up FunASR model loading
       ENABLE_LANGUAGE_DETECTION: true
 ```
 
@@ -323,6 +325,16 @@ STRIDE_LENGTH_S: 1
 ENABLE_DIARIZATION: true
 MAX_SPEAKERS: 2
 ```
+
+### Performance Optimization
+```yaml
+# FunASR GPU acceleration
+USE_GPU: true                    # Enable GPU acceleration (requires CUDA)
+FUNASR_DISABLE_UPDATE: true     # Disable update checks to speed up model loading
+NUM_THREADS: 4                  # Number of CPU threads for processing
+```
+
+**Note**: `FUNASR_DISABLE_UPDATE` is enabled by default (`true`) to improve startup performance. Set to `false` if you want FunASR to check for model updates on each startup.
 
 ## Integration with Speech Monitor
 

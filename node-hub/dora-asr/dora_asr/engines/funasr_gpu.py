@@ -108,6 +108,7 @@ class FunASRGPUEngine(ASRInterface):
     def _setup_pytorch_backend(self, asr_model_path, punc_model_path, use_gpu):
         """Setup PyTorch-based FunASR models"""
         logger.info("Setting up FunASR PyTorch backend")
+        logger.info(f"FunASR update check: {'disabled' if self.config.FUNASR_DISABLE_UPDATE else 'enabled'}")
         
         # Set device
         self.device = "cuda" if use_gpu and CUDA_AVAILABLE else "cpu"
@@ -119,7 +120,7 @@ class FunASRGPUEngine(ASRInterface):
             self.asr_model = AutoModel(
                 model=str(asr_model_path),
                 device=self.device,
-                disable_update=True,
+                disable_update=self.config.FUNASR_DISABLE_UPDATE,
                 disable_log=True
             )
             
@@ -129,7 +130,7 @@ class FunASRGPUEngine(ASRInterface):
                 self.punc_model = AutoModel(
                     model=str(punc_model_path),
                     device=self.device,
-                    disable_update=True,
+                    disable_update=self.config.FUNASR_DISABLE_UPDATE,
                     disable_log=True
                 )
             

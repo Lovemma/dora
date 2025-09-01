@@ -1,0 +1,21 @@
+[
+  {
+    "implementation": "Original FunASR",
+    "backend": "ONNX",
+    "device": "CPU",
+    "init_time": 16.6729679107666,
+    "warmup_time": 0.11109805107116699,
+    "audio_duration": 2.989,
+    "avg_time": 0.10400088628133138,
+    "std_time": 0.006039738473002607,
+    "rtf": 0.03479454208140896,
+    "speed_x": 28.740139693757,
+    "transcription": "\u76ee\u524d\u7684\u7b49\u7ea7\u4e3a\u4e8c\u7b49\u7ad9\u3002",
+    "all_times": [
+      0.10902690887451172,
+      0.09550690650939941,
+      0.10746884346008301
+    ]
+  },
+  null
+]

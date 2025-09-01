@@ -43,6 +43,32 @@ print_info() {
     echo -e "${BLUE}ℹ${NC} $1"
 }
 
+# Install system dependencies
+install_system_dependencies() {
+    print_header "Installing System Dependencies"
+    
+    # Install PortAudio for pyaudio, OpenMP for llama-cpp-python, and ffmpeg for multimedia processing
+    if command -v apt-get &> /dev/null; then
+        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        sudo apt-get update
+        sudo apt-get install -y portaudio19-dev python3-pyaudio libgomp1 libomp-dev ffmpeg
+        print_success "PortAudio, OpenMP, and ffmpeg installed"
+    elif command -v yum &> /dev/null; then
+        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        sudo yum install -y portaudio-devel libgomp-devel ffmpeg
+        print_success "PortAudio, OpenMP, and ffmpeg installed"
+    elif command -v dnf &> /dev/null; then
+        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        sudo dnf install -y portaudio-devel libgomp-devel ffmpeg
+        print_success "PortAudio, OpenMP, and ffmpeg installed"
+    else
+        print_warning "Package manager not detected. Please install dependencies manually"
+        print_info "Ubuntu/Debian: sudo apt install portaudio19-dev libgomp1 libomp-dev ffmpeg"
+        print_info "RHEL/CentOS: sudo yum install portaudio-devel libgomp-devel ffmpeg"
+        print_info "Fedora: sudo dnf install portaudio-devel libgomp-devel ffmpeg"
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     print_header "Checking Prerequisites"
@@ -96,6 +122,56 @@ create_environment() {
     print_success "Environment created successfully"
 }
 
+# Setup conda in shell profile
+setup_conda_profile() {
+    print_header "Setting up Conda in Shell Profile"
+    
+    CONDA_BASE_PATH=$(conda info --base 2>/dev/null || echo "")
+    if [ -n "$CONDA_BASE_PATH" ]; then
+        print_info "Adding conda to shell profile..."
+        
+        # Add to bashrc if not already there
+        if ! grep -q "conda.sh" ~/.bashrc 2>/dev/null; then
+            echo "" >> ~/.bashrc
+            echo "# Initialize conda" >> ~/.bashrc
+            echo "if [ -f \"$CONDA_BASE_PATH/etc/profile.d/conda.sh\" ]; then" >> ~/.bashrc
+            echo "    source \"$CONDA_BASE_PATH/etc/profile.d/conda.sh\"" >> ~/.bashrc
+            echo "fi" >> ~/.bashrc
+            echo "export PATH=\"$CONDA_BASE_PATH/bin:\$PATH\"" >> ~/.bashrc
+            echo "export PATH=\"$CONDA_BASE_PATH/condabin:\$PATH\"" >> ~/.bashrc
+            print_success "Conda added to ~/.bashrc"
+        else
+            print_info "Conda already configured in ~/.bashrc"
+        fi
+        
+        # Add to zshrc if it exists
+        if [ -f ~/.zshrc ] && ! grep -q "conda.sh" ~/.zshrc 2>/dev/null; then
+            echo "" >> ~/.zshrc
+            echo "# Initialize conda" >> ~/.zshrc
+            echo "if [ -f \"$CONDA_BASE_PATH/etc/profile.d/conda.sh\" ]; then" >> ~/.zshrc
+            echo "    source \"$CONDA_BASE_PATH/etc/profile.d/conda.sh\"" >> ~/.zshrc
+            echo "fi" >> ~/.zshrc
+            echo "export PATH=\"$CONDA_BASE_PATH/bin:\$PATH\"" >> ~/.zshrc
+            echo "export PATH=\"$CONDA_BASE_PATH/condabin:\$PATH\"" >> ~/.zshrc
+            print_success "Conda added to ~/.zshrc"
+        fi
+        
+        # Add to system-wide profile if we have sudo access
+        if ! grep -q "$CONDA_BASE_PATH" /etc/profile 2>/dev/null; then
+            if sudo -n true 2>/dev/null; then
+                print_info "Adding conda to system-wide profile..."
+                echo "export PATH=\"$CONDA_BASE_PATH/bin:$CONDA_BASE_PATH/condabin:\$PATH\"" | sudo tee -a /etc/profile > /dev/null
+                print_success "Conda added to /etc/profile"
+            else
+                print_warning "Cannot add conda to system profile (no sudo access)"
+                print_info "You may need to restart your terminal or run: source ~/.bashrc"
+            fi
+        fi
+    else
+        print_warning "Could not detect conda base path"
+    fi
+}
+
 # Activate environment and install dependencies
 install_dependencies() {
     print_header "Installing Dependencies"
@@ -132,6 +208,10 @@ install_dependencies() {
     pip install openai websockets aiohttp requests
     pip install pyyaml toml python-dotenv
     pip install pyaudio sounddevice
+    
+    # Install llama-cpp-python from conda-forge (avoids build issues)
+    print_info "Installing llama-cpp-python from conda-forge..."
+    conda install -c conda-forge llama-cpp-python -y
     
     print_success "Core dependencies installed"
 }
@@ -265,6 +345,8 @@ main() {
     print_header "Dora Voice Chat - Isolated Environment Setup"
     
     check_prerequisites
+    install_system_dependencies
+    setup_conda_profile
     create_environment
     
     # Activate environment for remaining steps
