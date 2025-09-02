@@ -28,6 +28,7 @@ use fastwebsockets::Frame;
 use fastwebsockets::OpCode;
 use fastwebsockets::Payload;
 use fastwebsockets::WebSocketError;
+use std::process::Command;
 use futures_concurrency::future::Race;
 use futures_util::future;
 use futures_util::future::Either;
@@ -450,9 +451,40 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     
     println!("✅ Dataflow started successfully with node_id: {}", node_id);
     
-    // Wait for dataflow to be fully initialized
+    // Poll for dataflow to be fully initialized instead of fixed wait
     println!("Waiting for dataflow to initialize...");
-    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;  // Give more time for dataflow to start
+    let mut retry_count = 0;
+    const MAX_RETRIES: u32 = 30;  // 30 * 200ms = 6 seconds max wait
+    const POLL_INTERVAL_MS: u64 = 200;
+    
+    loop {
+        // Check if dataflow is running using dora list
+        let list_output = Command::new("dora")
+            .arg("list")
+            .output()
+            .expect("Failed to execute dora list command");
+        
+        if list_output.status.success() {
+            let output_str = String::from_utf8_lossy(&list_output.stdout);
+            // Check if our node_id appears in the list and is Running
+            if output_str.contains(&node_id) && output_str.contains("Running") {
+                println!("✅ Dataflow {} is confirmed running", node_id);
+                // Add a small additional delay to ensure all nodes are initialized
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                break;
+            }
+        }
+        
+        retry_count += 1;
+        if retry_count >= MAX_RETRIES {
+            eprintln!("❌ Timeout waiting for dataflow {} to be ready after {} seconds", 
+                     node_id, (MAX_RETRIES as u64 * POLL_INTERVAL_MS) / 1000);
+            ws.write_frame(Frame::close(1011, b"Dataflow initialization timeout")).await?;
+            return Err(WebSocketError::InvalidConnectionHeader);
+        }
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
     
     // Now try to initialize the Dora node in a separate task to avoid blocking
     println!("Attempting to initialize Dora node with ID: {}", node_id);
