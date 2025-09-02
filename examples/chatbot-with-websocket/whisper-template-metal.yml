@@ -61,7 +61,7 @@ nodes:
       ENABLE_PUNCTUATION: true
       ENABLE_LANGUAGE_DETECTION: true
       ENABLE_CONFIDENCE_SCORE: false
-      # ASR_MODELS_DIR: ./models/asr  # Relative path (recommended)
+      ASR_MODELS_DIR: $HOME/.dora/models/asr # Relative path (recommended)
       # ASR_MODELS_DIR: ~/.cache/modelscope/hub/models/iic  # Modelscope cache location
       # If not set, defaults to ~/.dora/models/asr (which has the models)
       LOG_LEVEL: INFO
@@ -146,7 +146,7 @@ nodes:
 
     env:
       # Model path configuration (REQUIRED)
-      PRIMESPEECH_MODEL_DIR: /Users/yuechen/.dora/models/primespeech  # Path to your models directory
+      PRIMESPEECH_MODEL_DIR: $HOME/.dora/models/primespeech  # Path to your models directory
       # Note: Models should be in PRIMESPEECH_MODEL_DIR/moyoyo/ with this structure:
       #   - GPT_weights/doubao_best_gpt.ckpt
       #   - SoVITS_weights/doubao_best_sovits.pth

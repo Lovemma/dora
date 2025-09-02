@@ -2,16 +2,13 @@
 nodes:
   # WAV file player - reads test audio and sends it
   - id: wav-player
-    custom:
-      source: python
-      args: wav_player_node.py
+    path: wav_player_node.py
     outputs:
       - audio
       
   # ASR node with CPU only
   - id: asr
-    operator:
-      python: ../../../node-hub/dora-asr
+    path: ../../../node-hub/dora-asr
     inputs:
       audio: wav-player/audio
     outputs:
@@ -26,8 +23,6 @@ nodes:
       
   # Result logger - displays transcription
   - id: result-logger
-    custom:
-      source: python
-      args: result_logger_node.py
+    path: result_logger_node.py
     inputs:
       text: asr/text

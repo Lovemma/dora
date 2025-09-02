@@ -71,7 +71,7 @@ Test with full Dora dataflow pipeline:
 # Kill any existing Dora instances
 dora destroy
 
-# Start the dataflow
+# Start the dataflow, ctrl C to break the dataflow because it will not exit by iteslef
 dora up
 dora start dataflow-static.yml
 ```

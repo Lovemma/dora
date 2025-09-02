@@ -41,7 +41,7 @@ def test_basic_asr():
     manager = ASRManager()
     
     # Load test audio
-    audio_file = "test_audio_chinese.wav"
+    audio_file = "test.wav"
     if not Path(audio_file).exists():
         print(f"Error: Audio file '{audio_file}' not found!")
         print("Please run this script from the asr-validation directory")
@@ -83,7 +83,7 @@ def test_basic_asr():
                 print(f"  Backend: {'PyTorch' if engine.use_pytorch else 'ONNX'}")
         
         # Validate transcription
-        expected_text = "你好吗？请你告诉我怎么坐公共汽车去北京动物园？请你告诉我梅菜扣肉怎么做和涮羊？怎么做？"
+        expected_text = "目前的等级为二等站。"
         if result.get('text'):
             # Simple similarity check (you might want more sophisticated comparison)
             if "你好吗" in result['text'] and "北京动物园" in result['text']:

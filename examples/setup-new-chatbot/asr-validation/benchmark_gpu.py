@@ -229,7 +229,7 @@ def print_results(results: List[Dict]):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark FunASR GPU acceleration")
-    parser.add_argument("--audio", type=str, default="test_audio_chinese.wav", help="Path to audio file")
+    parser.add_argument("--audio", type=str, default="test.wav", help="Path to audio file")
     parser.add_argument("--skip-original", action="store_true", help="Skip original implementation")
     parser.add_argument("--cpu-only", action="store_true", help="Test CPU performance only")
     args = parser.parse_args()

@@ -16,18 +16,11 @@ Basic ASR Test (USE_GPU=false)
 ============================================================
 ...
 Transcription:
-  你好吗？请你告诉我怎么坐公共汽车去北京动物园？请你告诉我梅菜扣肉怎么做和涮羊？怎么做？
+  目前的等级为二等站。
 ...
 ✅ Transcription quality: GOOD (contains expected phrases)
 ```
 
-## 🔧 Complete Validation (5 minutes)
-
-Run all tests to validate your setup:
-
-```bash
-./run_all_tests.sh
-```
 
 This will:
 1. ✅ Test environment variable control
@@ -42,7 +35,7 @@ This will:
 ### Quick Benchmark
 ```bash
 # Compare CPU and GPU performance
-python benchmark_gpu.py --audio test_audio_chinese.wav
+python benchmark_gpu.py --test.wav
 ```
 
 ### Expected Results (RTX 4090)
@@ -69,14 +62,6 @@ USE_GPU=false python test_basic_asr.py
 ```bash
 USE_GPU=true python test_basic_asr.py
 ```
-
-### 4. Test with Dora Dataflow
-```bash
-# GPU mode
-dora start dataflow_gpu.yml
-
-# CPU mode
-dora start dataflow_cpu.yml
 ```
 
 ## 🔍 Check Your Setup
@@ -151,7 +136,7 @@ python download_models.py --model funasr
 ### Issue: "Transcription is empty"
 ```bash
 # Check audio file
-python -c "import librosa; audio, sr = librosa.load('test_audio_chinese.wav'); print(f'Duration: {len(audio)/sr:.2f}s')"
+python -c "import librosa; audio, sr = librosa.load('test.wav'); print(f'Duration: {len(audio)/sr:.2f}s')"
 ```
 
 ## 📈 Performance Tips
@@ -169,24 +154,6 @@ Your ASR setup is working if:
 - ✅ All tests in `run_all_tests.sh` pass
 - ✅ Dataflow examples work without errors
 
-## 📚 Next Steps
-
-1. **Integrate into your project**:
-   ```python
-   from dora_asr.manager import ASRManager
-   manager = ASRManager()
-   result = manager.transcribe(audio_data)
-   ```
-
-2. **Customize for your needs**:
-   - Edit dataflow YAML files
-   - Adjust environment variables
-   - Add custom preprocessing
-
-3. **Deploy to production**:
-   - Use GPU for best performance
-   - Monitor memory usage
-   - Set up logging
 
 ## 🆘 Get Help
 

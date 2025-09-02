@@ -31,13 +31,13 @@ Compare performance between CPU and GPU modes:
 
 ```bash
 # Run full benchmark
-python benchmark_gpu.py --audio test_audio_chinese.wav
+python benchmark_gpu.py --audio test.wav
 
 # Skip original implementation comparison
-python benchmark_gpu.py --audio test_audio_chinese.wav --skip-original
+python benchmark_gpu.py --audio test.wav --skip-original
 
 # Test CPU only (no GPU comparison)
-python benchmark_gpu.py --audio test_audio_chinese.wav --cpu-only
+python benchmark_gpu.py --audio test.wav --cpu-only
 ```
 
 ### 3. Environment Control Validation
@@ -56,7 +56,7 @@ python validate_gpu_switching.py
 
 ### Audio Samples
 
-- **test_audio_chinese.wav**: 17.35 seconds of Chinese speech
+- **test.wav**: 17.35 seconds of Chinese speech
   - Sample rate: 16kHz
   - Content: "你好吗？请你告诉我怎么坐公共汽车去北京动物园？请你告诉我梅菜扣肉怎么做和涮羊？怎么做？"
   - Perfect for testing Chinese ASR engines (FunASR)
@@ -207,7 +207,7 @@ import librosa
 from dora_asr.manager import ASRManager
 
 # Load audio
-audio, sr = librosa.load("test_audio_chinese.wav", sr=16000)
+audio, sr = librosa.load("test.wav", sr=16000)
 
 # Test transcription
 manager = ASRManager()
@@ -273,7 +273,7 @@ watch -n 0.5 nvidia-smi
 
 2. Run benchmark for detailed metrics:
 ```bash
-python benchmark_gpu.py --audio test_audio_chinese.wav
+python benchmark_gpu.py --audio test.wav
 ```
 
 3. Check for thermal throttling:
@@ -348,68 +348,3 @@ nodes:
       ASR_ENGINE: "funasr"
       LANGUAGE: "auto"
 ```
-
-## Development and Testing
-
-### Running All Tests
-
-```bash
-#!/bin/bash
-# run_all_tests.sh
-
-echo "=== ASR Validation Test Suite ==="
-
-echo -e "\n1. Testing environment control..."
-python test_gpu_env_control.py
-
-echo -e "\n2. Testing basic ASR..."
-USE_GPU=false python test_basic_asr.py
-USE_GPU=true python test_basic_asr.py
-
-echo -e "\n3. Running benchmarks..."
-python benchmark_gpu.py --audio test_audio_chinese.wav
-
-echo -e "\n4. Testing GPU switching..."
-python validate_gpu_switching.py
-
-echo -e "\nAll tests completed!"
-```
-
-### Continuous Integration
-
-Add to your CI/CD pipeline:
-
-```yaml
-# .github/workflows/test_asr.yml
-name: Test ASR
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Setup Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          pip install -e ../../node-hub/dora-asr
-      - name: Run tests
-        run: |
-          cd examples/setup-new-chatbot/asr-validation
-          python test_gpu_env_control.py
-          USE_GPU=false python test_basic_asr.py
-```
-
-## Additional Resources
-
-- [dora-asr Documentation](../../../node-hub/dora-asr/README.md)
-- [GPU Enhancements Guide](../../../node-hub/dora-asr/GPU_ENHANCEMENTS.md)
-- [FunASR Official Docs](https://github.com/modelscope/FunASR)
-- [Whisper Documentation](https://github.com/openai/whisper)
-
-## License
-
-This validation suite is part of the Dora project and follows the same licensing terms.
