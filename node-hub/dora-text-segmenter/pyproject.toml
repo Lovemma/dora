@@ -4,7 +4,7 @@ version = "0.1.0"
 dependencies = [
     "dora-rs>=0.3.7",
     "pyarrow>=10.0.0",
-    "numpy>=1.21.0,<2.0",  # Voice chat pipeline standard
+    "numpy>=1.21.0,<2.0",  # CRITICAL: Must be 1.x (1.26.4 recommended)
 ]
 
 [project.scripts]

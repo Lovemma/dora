@@ -15,8 +15,9 @@ pyarrow = ">=10.0.0"                # Data serialization
 
 ### **Numerical Computing**
 ```toml
-numpy = ">=1.21.0,<2.0"             # Pin to 1.x for compiled package compatibility
-scipy = ">=1.7.0"                   # Scientific computing
+numpy = ">=1.21.0,<2.0"             # CRITICAL: Must be 1.x (1.26.4 recommended)
+scipy = ">=1.11.0,<1.12.0"          # For Python 3.12 compatibility (1.11.4 recommended)
+torchmetrics = "==1.0.0"            # Exact version to avoid scipy conflicts
 ```
 
 ### **PyTorch Ecosystem (Voice Pipeline Standard)**
@@ -66,11 +67,13 @@ pip install -e node-hub/dora-asr[gpu]
 
 ### **dora-primespeech** (Text-to-Speech)
 **Core Dependencies:**
-- `numpy>=1.21.0,<2.0`
+- `numpy>=1.21.0,<2.0` (CRITICAL: 1.26.4 required)
+- `scipy==1.11.4` (CRITICAL: exact version for Python 3.12)
 - `torch>=2.0.0,<2.3.0`
 - `torchaudio>=2.0.0,<2.3.0`
 - `transformers>=4.40.0,<4.50.0`
 - `pytorch-lightning>=2.0.0`
+- `torchmetrics==1.0.0` (CRITICAL: exact version)
 - Chinese NLP: `pypinyin>=0.50.0`, `jieba>=0.42.1`, `cn2an>=0.5.22`
 
 **Installation:**
@@ -141,8 +144,8 @@ pip install torch==2.2.0 torchaudio==2.2.0 torchvision==0.17.0
 # Install Transformers (security compliant)
 pip install transformers==4.45.0
 
-# Install NumPy (compatible version)  
-pip install numpy==1.26.4
+# Install NumPy and SciPy (CRITICAL: exact versions for compatibility)
+pip install numpy==1.26.4 scipy==1.11.4 torchmetrics==1.0.0
 
 # Install voice chat nodes
 pip install -e ../../node-hub/dora-asr[gpu]
@@ -166,11 +169,16 @@ pip uninstall torch torchaudio torchvision
 pip install torch==2.2.0 torchaudio==2.2.0 torchvision==0.17.0
 ```
 
-### **Issue 2: NumPy 2.0 Compatibility**
+### **Issue 2: NumPy/SciPy Compatibility**
 ```bash
-# Symptom: Errors with compiled packages (funasr-onnx, etc.)
-# Solution: Downgrade to numpy 1.x
-pip install numpy==1.26.4
+# Symptom: ValueError: All ufuncs must have type `numpy.ufunc`
+# This error occurs when NumPy 2.0+ is installed
+# Solution: Use exact compatible versions
+pip uninstall numpy scipy torchmetrics -y
+pip install numpy==1.26.4 scipy==1.11.4 torchmetrics==1.0.0
+
+# Verify fix:
+python -c "import scipy.special; print('SciPy OK')"
 ```
 
 ### **Issue 3: Transformers Security Warning**
@@ -228,14 +236,16 @@ export CUDA_VISIBLE_DEVICES="0"
 ## 📊 Tested Configurations
 
 ### **✅ Confirmed Working Setups**
-1. **macOS ARM64** - Python 3.12, torch 2.2.0, transformers 4.45.0, numpy 1.26.4
-2. **Linux GPU** - Python 3.12, torch 2.2.0+cu121, transformers 4.45.0, numpy 1.26.4
-3. **Windows CPU** - Python 3.12, torch 2.2.0, transformers 4.45.0, numpy 1.26.4
+1. **macOS ARM64** - Python 3.12, torch 2.2.0, transformers 4.45.0, numpy 1.26.4, scipy 1.11.4
+2. **Linux GPU** - Python 3.12, torch 2.2.0+cu121, transformers 4.45.0, numpy 1.26.4, scipy 1.11.4
+3. **Linux CPU** - Python 3.12, torch 2.2.0+cpu, transformers 4.45.0, numpy 1.26.4, scipy 1.11.4
+4. **Windows CPU** - Python 3.12, torch 2.2.0, transformers 4.45.0, numpy 1.26.4, scipy 1.11.4
 
 ### **⚠️ Known Issues**
 1. **PyTorch 2.3+** - May cause compatibility issues with some audio processing
-2. **NumPy 2.0+** - Breaks compatibility with funasr-onnx and other compiled packages
-3. **Transformers 4.50+** - Security vulnerability (CVE-2025-32434)
+2. **NumPy 2.0+** - CRITICAL: Breaks scipy.special causing "All ufuncs must have type numpy.ufunc" error
+3. **SciPy 1.10.x** - Does not support Python 3.12, use 1.11.4 instead
+4. **Transformers 4.50+** - Security vulnerability (CVE-2025-32434)
 
 ## 🔄 Updating Dependencies
 
