@@ -486,47 +486,55 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
     }
     
-    // Now try to initialize the Dora node in a separate task to avoid blocking
+    // Try to initialize the Dora node with retries
     println!("Attempting to initialize Dora node with ID: {}", node_id);
-    let node_id_clone = node_id.clone();
-    let node_init_handle = tokio::task::spawn_blocking(move || {
-        DoraNode::init_from_node_id(NodeId::from(node_id_clone))
-    });
     
-    // Try to get the node, but don't block if it fails
-    let (mut node, mut events) = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),  // Increased timeout for better reliability
-        node_init_handle
-    ).await {
-        Ok(Ok(Ok((n, e)))) => {
-            println!("Dora node initialized successfully as '{}'", node_id);
-            (n, e)
-        },
-        Ok(Ok(Err(e))) => {
-            println!("WARNING: Failed to initialize Dora node '{}': {:?}", node_id, e);
-            println!("Continuing without Dora node connection - audio forwarding will not work");
-            // Just maintain the websocket connection
-            loop {
-                match ws.read_frame().await {
-                    Ok(frame) if frame.opcode == OpCode::Close => break,
-                    Ok(_) => continue,
-                    Err(_) => break,
+    let mut node_init_retries = 0;
+    const MAX_NODE_INIT_RETRIES: u32 = 3;
+    const NODE_INIT_TIMEOUT_SECS: u64 = 10;  // Longer timeout per attempt
+    
+    let (mut node, mut events) = loop {
+        node_init_retries += 1;
+        println!("Dynamic node connection attempt {} of {}", node_init_retries, MAX_NODE_INIT_RETRIES);
+        
+        let node_id_clone = node_id.clone();
+        let node_init_handle = tokio::task::spawn_blocking(move || {
+            DoraNode::init_from_node_id(NodeId::from(node_id_clone))
+        });
+        
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(NODE_INIT_TIMEOUT_SECS),
+            node_init_handle
+        ).await {
+            Ok(Ok(Ok((n, e)))) => {
+                println!("✅ Dora node initialized successfully as '{}' on attempt {}", node_id, node_init_retries);
+                break (n, e);
+            },
+            Ok(Ok(Err(e))) if node_init_retries < MAX_NODE_INIT_RETRIES => {
+                println!("⚠️  Failed to initialize Dora node '{}' on attempt {}: {:?}", node_id, node_init_retries, e);
+                println!("Waiting 1 second before retry...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                continue;
+            },
+            Ok(Err(_)) | Err(_) if node_init_retries < MAX_NODE_INIT_RETRIES => {
+                println!("⚠️  Dora node initialization timed out for '{}' on attempt {}", node_id, node_init_retries);
+                println!("Waiting 1 second before retry...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                continue;
+            },
+            _ => {
+                println!("❌ Failed to initialize Dora node '{}' after {} attempts", node_id, MAX_NODE_INIT_RETRIES);
+                println!("Continuing without Dora node connection - audio forwarding will not work");
+                // Just maintain the websocket connection
+                loop {
+                    match ws.read_frame().await {
+                        Ok(frame) if frame.opcode == OpCode::Close => break,
+                        Ok(_) => continue,
+                        Err(_) => break,
+                    }
                 }
+                return Ok(());
             }
-            return Ok(());
-        },
-        Ok(Err(_)) | Err(_) => {
-            println!("WARNING: Dora node initialization timed out or panicked for '{}'", node_id);
-            println!("Continuing without Dora node connection - audio forwarding will not work");
-            // Just maintain the websocket connection
-            loop {
-                match ws.read_frame().await {
-                    Ok(frame) if frame.opcode == OpCode::Close => break,
-                    Ok(_) => continue,
-                    Err(_) => break,
-                }
-            }
-            return Ok(());
         }
     };
     
