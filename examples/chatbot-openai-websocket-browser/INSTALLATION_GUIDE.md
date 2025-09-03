@@ -4,12 +4,12 @@ This guide walks you through setting up and running the Dora voice chat system w
 
 ## Prerequisites
 
-- Ubuntu 22.04 or similar Linux distribution
+- Ubuntu 24.04 or similar Linux distribution
 - Python 3.12
 - Rust toolchain (rustc, cargo)
 - Git with LFS support
 - CUDA toolkit (optional, for GPU acceleration)
-- Sufficient disk space (~10GB for models)
+- Sufficient disk space (~30GB for models)
 
 ## Step 1: Setup Isolated Environment
 
@@ -22,30 +22,87 @@ cd examples/setup-new-chatbot
 
 This script will:
 - Install system dependencies (portaudio, OpenSSL, git-lfs, ffmpeg)
-- Create a conda environment named `dora_cloud` with Python 3.12
+- Create a conda environment named `dora_voice_chat` with Python 3.12
 - Install all required Python packages with correct versions
 
 **Important**: Activate the conda environment for ALL terminals you'll use:
 
 ```bash
-conda activate dora_cloud
+conda activate dora_voice_chat
 ```
 
-## Step 2: Download All Models
+## Step 2: Install All Packages (Ubuntu/Linux)
+
+You have two options for installing the required packages:
+
+#### Option A: Automated Installation (Recommended)
+
+Run the all-in-one installation script:
+
+```bash
+# Run the installation script
+cd ../setup-new-chatbot
+./install_all_packages.sh
+```
+
+This script will automatically:
+- Install system dependencies (gcc, gfortran, OpenBLAS, OpenSSL)
+- Install all Dora Python packages in editable mode
+- Install Rust (if not already installed)
+- Install Dora CLI
+- Build all Rust-based nodes (dora-maas-client, dora-openai-websocket)
+
+#### Option B: Manual Step-by-Step Installation
+
+If you prefer to install components manually or need more control:
+
+```bash
+# 1. Activate conda environment first
+conda activate dora_voice_chat
+
+# 2. Install essential build tools and libraries
+sudo apt-get update
+sudo apt-get install -y gcc gfortran libopenblas-dev build-essential openssl libssl-dev
+
+# 3. Install all Dora packages in editable mode
+cd ../..  # Go to dora root directory
+pip install -e node-hub/dora-primespeech
+pip install -e node-hub/dora-asr
+pip install -e node-hub/dora-speechmonitor
+pip install -e node-hub/dora-text-segmenter
+
+# 4. Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 5. Install Dora CLI
+cargo install dora-cli --locked
+
+# 6. Build Rust-based nodes
+cargo build --release -p dora-maas-client
+cargo build --release -p dora-openai-websocket
+```
+
+## Step 3: Download All Models
 
 Navigate to the model-manager directory and download all required models:
 
 ```bash
+# Make sure conda environment is activated
+conda activate dora_voice_chat
+
 cd ../model-manager
 
 # Download ASR models (FunASR for Chinese/English)
 python download_models.py --download funasr
 
-# Download PrimeSpeech base models (G2PW, HiFiGAN, etc.)
-python download_models.py --download primespeech-base
+# Download complete PrimeSpeech TTS package (base models + G2PW + all voices)
+python download_models.py --download primespeech
 
-# Download voice files for TTS (downloads all available voices)
-python download_models.py --voice all
+# Alternative: Download PrimeSpeech components separately if needed
+# python download_models.py --download primespeech-base  # Base models only
+# python download_models.py --download g2pw              # G2PW model only
+# python download_models.py --voice all                  # All voice files only
 
 # Or download specific voice (e.g., Doubao)
 # python download_models.py --voice Doubao
@@ -57,14 +114,17 @@ python download_models.py --list-voices
 python download_models.py --list
 ```
 
-### Convert PrimeSpeech Models to ONNX (Optional, for optimization)
+### Convert Models to ONNX (Optional, for optimization)
 
 ```bash
-# Convert PrimeSpeech models to ONNX format for better performance
-python convert_to_onnx.py --model primespeech --input-dir ~/.dora/models/primespeech
+# Make sure conda environment is activated
+conda activate dora_voice_chat
+
+# Convert all models to ONNX format for better performance
+python convert_to_onnx.py --convert all
 ```
 
-## Step 3: Validate ASR and PrimeSpeech
+## Step 4: Validate ASR and PrimeSpeech
 
 Return to the setup directory and run validation tests to ensure everything is working:
 
@@ -108,20 +168,6 @@ python test_tts_direct.py
 cd ../..
 ```
 
-### PrimeSpeech Performance Metrics
-
-Based on CPU testing with 160 Chinese characters:
-
-| Metric | Value |
-|--------|-------|
-| Text Length | 160 Chinese characters |
-| Audio Duration | 31.97 seconds |
-| Synthesis Time | 41.84 seconds |
-| Real-time Factor | 0.76x (CPU baseline) |
-| Processing Speed | 3.8 characters/second |
-| Audio Format | WAV 16-bit PCM, mono, 32kHz |
-
-**Note**: GPU acceleration can improve RTF to >2.0x for real-time synthesis.
 
 ### PrimeSpeech Configuration
 
@@ -178,7 +224,7 @@ print(f'Engine: {m._engine_classes[\"funasr\"].__name__}')
 
 All tests should pass. If any fail, check the error messages and ensure models are properly downloaded. For detailed troubleshooting, see the ASR validation README in `setup-new-chatbot/asr-validation/README.md`.
 
-## Step 4: Configure OpenAI API Key
+## Step 5: Configure OpenAI API Key
 
 Navigate to the chatbot example and configure your OpenAI API key:
 
@@ -201,7 +247,7 @@ api_key = "sk-your-actual-openai-api-key-here"  # Replace with your real key
 
 Save the file.
 
-## Step 5: Install Playwright MCP Server (for Browser Automation Tools)
+## Step 6: Install Playwright MCP Server (for Browser Automation Tools)
 
 The Playwright MCP server enables browser automation through voice commands. Install it using npm:
 
@@ -236,7 +282,7 @@ args = [
 
 For more information about the Playwright MCP server, see: https://github.com/microsoft/playwright-mcp
 
-## Step 6: Build All Dora Nodes
+## Step 7: Build All Dora Nodes
 
 Build all the required Dora nodes using the template:
 
@@ -256,7 +302,7 @@ dora build whisper-template-metal.yml
 # - dora-primespeech (Python TTS)
 ```
 
-## Step 7: Run WebSocket Server
+## Step 8: Run WebSocket Server
 
 Start the WebSocket server that will handle voice chat sessions:
 
@@ -272,7 +318,7 @@ Server started, listening on 0.0.0.0:8123
 
 Keep this terminal running.
 
-## Step 8: Run Moly Client
+## Step 9: Run Moly Client
 
 In a new terminal (remember to activate conda environment):
 
@@ -286,7 +332,7 @@ cargo run --release
 
 The Moly client will start and open in your default browser.
 
-## Step 9: Configure Moly Provider
+## Step 10: Configure Moly Provider
 
 In the Moly client interface:
 
@@ -297,7 +343,7 @@ In the Moly client interface:
    - API Key: Enter any text (e.g., "fake-key") - this is just a placeholder
 4. Save the configuration
 
-## Step 10: Create New Chat Session
+## Step 11: Create New Chat Session
 
 In the Moly client:
 
@@ -305,7 +351,7 @@ In the Moly client:
 2. You should see a microphone/talk icon in the bottom right corner
 3. Click the talk icon to launch the voice interface
 
-## Step 11: Start Voice Conversation
+## Step 12: Start Voice Conversation
 
 1. Click the "Start" button to begin the conversation
 2. In the WebSocket server terminal, you should see:
@@ -316,19 +362,23 @@ In the Moly client:
 
 This confirms the session is active and all Dora nodes are connected.
 
-## Step 12: Have a Conversation
+## Step 13: Have a Conversation
 
 1. Speak into your microphone
-2. You should see in Moly:
-   - "Listening..." when detecting your speech
-   - Your transcribed text appearing
-   - "Response generated" when the AI completes processing
-   - The AI's response text
+2. You should see the following states in Moly:
+   - "Connecting" - Establishing WebSocket connection
+   - "Loading" - Initializing the session
+   - "Listening" - Ready to detect speech
+   - "Speech detected" - When you start speaking
+   - "Response generated" - When the AI completes processing
+3. The conversation flow:
+   - Your transcribed text appears
+   - The AI's response text displays
    - Audio playback of the response
 
 **Note**: Response generation may take a while on weaker machines. First response might be slower as models load into memory.
 
-## Step 13: Managing Sessions
+## Step 14: Managing Sessions
 
 - Click "Stop" to end the current conversation
 - Click "Start" again to launch a new WebSocket session

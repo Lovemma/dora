@@ -1164,7 +1164,7 @@ def main():
     parser.add_argument(
         "--download",
         type=str,
-        help="Model to download: 'funasr' for FunASR models, 'primespeech-base' for base models, or HuggingFace repo ID"
+        help="Model to download: 'funasr' for FunASR models, 'primespeech' for complete TTS package, 'primespeech-base' for base models only, 'g2pw' for G2PW model, or HuggingFace repo ID"
     )
     
     # Add --remove argument
@@ -1306,9 +1306,37 @@ def main():
             if not success:
                 sys.exit(1)
         elif args.download == "primespeech":
-            # Download all PrimeSpeech voices
+            # Download all PrimeSpeech required models (base, G2PW, and all voices)
+            print("\n📦 Downloading complete PrimeSpeech package")
+            print("=" * 60)
+            
+            all_success = True
+            
+            # 1. Download base models (Chinese Hubert & Roberta)
+            print("\n[1/3] Downloading PrimeSpeech base models...")
+            success = download_primespeech_base(models_dir)
+            if not success:
+                print("❌ Failed to download base models")
+                all_success = False
+            
+            # 2. Download G2PW model
+            print("\n[2/3] Downloading G2PW model...")
+            success = download_g2pw_model()
+            if not success:
+                print("❌ Failed to download G2PW model")
+                all_success = False
+            
+            # 3. Download all voice models
+            print("\n[3/3] Downloading all voice models...")
             success = download_voice_models("all", models_dir)
             if not success:
+                print("❌ Failed to download voice models")
+                all_success = False
+            
+            if all_success:
+                print("\n✅ Successfully downloaded all PrimeSpeech components!")
+            else:
+                print("\n⚠️ Some components failed to download. Please check errors above.")
                 sys.exit(1)
         elif args.download in VOICE_CONFIGS:
             # Download specific voice
@@ -1319,9 +1347,9 @@ def main():
             print(f"❌ Unknown model to download: {args.download}")
             print("   Valid options:")
             print("   - 'funasr' for FunASR models")
-            print("   - 'primespeech' for all PrimeSpeech voices")
-            print("   - 'primespeech-base' for PrimeSpeech base models")
-            print("   - 'g2pw' for G2PW model")
+            print("   - 'primespeech' for complete PrimeSpeech package (base + G2PW + all voices)")
+            print("   - 'primespeech-base' for PrimeSpeech base models only")
+            print("   - 'g2pw' for G2PW model only")
             print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
             print("   - HuggingFace repo ID (e.g., 'organization/model')")
             sys.exit(1)
