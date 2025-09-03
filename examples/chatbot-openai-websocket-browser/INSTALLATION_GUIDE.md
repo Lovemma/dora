@@ -10,7 +10,7 @@ This guide walks you through setting up and running the Dora voice chat system w
 - Rust toolchain (rustc, cargo)
 - Git with LFS support
 - CUDA toolkit (optional, for GPU acceleration)
-- Sufficient disk space (~30GB for models)
+- Sufficient disk space (~50GB for models)
 
 ### Installing Conda (if not already installed)
 
@@ -60,7 +60,7 @@ cd examples/setup-new-chatbot
 ```
 
 This script will:
-- Install system dependencies (portaudio, OpenSSL, git-lfs, ffmpeg)
+- Install all system dependencies (gcc, g++, gfortran, build-essential, libopenblas, openssl, portaudio, git-lfs, ffmpeg)
 - Create a conda environment named `dora_voice_chat` with Python 3.12
 - Install all required Python packages with correct versions
 
@@ -85,7 +85,6 @@ cd ../setup-new-chatbot
 ```
 
 This script will automatically:
-- Install system dependencies (gcc, gfortran, OpenBLAS, OpenSSL)
 - Install all Dora Python packages in editable mode
 - Install Rust (if not already installed)
 - Install Dora CLI
@@ -99,25 +98,21 @@ If you prefer to install components manually or need more control:
 # 1. Activate conda environment first
 conda activate dora_voice_chat
 
-# 2. Install essential build tools and libraries
-sudo apt-get update
-sudo apt-get install -y gcc gfortran libopenblas-dev build-essential openssl libssl-dev
-
-# 3. Install all Dora packages in editable mode
+# 2. Install all Dora packages in editable mode
 cd ../..  # Go to dora root directory
 pip install -e node-hub/dora-primespeech
 pip install -e node-hub/dora-asr
 pip install -e node-hub/dora-speechmonitor
 pip install -e node-hub/dora-text-segmenter
 
-# 4. Install Rust (if not already installed)
+# 3. Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# 5. Install Dora CLI
+# 4. Install Dora CLI
 cargo install dora-cli --locked
 
-# 6. Build Rust-based nodes
+# 5. Build Rust-based nodes
 cargo build --release -p dora-maas-client
 cargo build --release -p dora-openai-websocket
 ```

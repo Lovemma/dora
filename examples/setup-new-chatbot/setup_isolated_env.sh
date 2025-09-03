@@ -48,25 +48,38 @@ print_info() {
 install_system_dependencies() {
     print_header "Installing System Dependencies"
     
-    # Install PortAudio for pyaudio, OpenMP for llama-cpp-python, and ffmpeg for multimedia processing
+    # Install all required system dependencies
     if command -v apt-get &> /dev/null; then
-        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        print_info "Installing system dependencies..."
         sudo apt-get update
+        # Install essential build tools
+        sudo apt-get install -y gcc g++ gfortran build-essential make
+        # Install required libraries
+        sudo apt-get install -y libopenblas-dev openssl libssl-dev
+        # Install audio and multimedia libraries
         sudo apt-get install -y portaudio19-dev python3-pyaudio libgomp1 libomp-dev ffmpeg
-        print_success "PortAudio, OpenMP, and ffmpeg installed"
+        # Install git-lfs for large file support
+        sudo apt-get install -y git-lfs
+        print_success "All system dependencies installed"
     elif command -v yum &> /dev/null; then
-        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        print_info "Installing system dependencies..."
+        sudo yum install -y gcc gcc-c++ gcc-gfortran make
+        sudo yum install -y openblas-devel openssl openssl-devel
         sudo yum install -y portaudio-devel libgomp-devel ffmpeg
-        print_success "PortAudio, OpenMP, and ffmpeg installed"
+        sudo yum install -y git-lfs
+        print_success "All system dependencies installed"
     elif command -v dnf &> /dev/null; then
-        print_info "Installing PortAudio, OpenMP development libraries, and ffmpeg..."
+        print_info "Installing system dependencies..."
+        sudo dnf install -y gcc gcc-c++ gcc-gfortran make
+        sudo dnf install -y openblas-devel openssl openssl-devel
         sudo dnf install -y portaudio-devel libgomp-devel ffmpeg
-        print_success "PortAudio, OpenMP, and ffmpeg installed"
+        sudo dnf install -y git-lfs
+        print_success "All system dependencies installed"
     else
         print_warning "Package manager not detected. Please install dependencies manually"
-        print_info "Ubuntu/Debian: sudo apt install portaudio19-dev libgomp1 libomp-dev ffmpeg"
-        print_info "RHEL/CentOS: sudo yum install portaudio-devel libgomp-devel ffmpeg"
-        print_info "Fedora: sudo dnf install portaudio-devel libgomp-devel ffmpeg"
+        print_info "Ubuntu/Debian: sudo apt install gcc g++ gfortran build-essential libopenblas-dev openssl libssl-dev portaudio19-dev libgomp1 libomp-dev ffmpeg git-lfs"
+        print_info "RHEL/CentOS: sudo yum install gcc gcc-c++ gcc-gfortran openblas-devel openssl-devel portaudio-devel libgomp-devel ffmpeg git-lfs"
+        print_info "Fedora: sudo dnf install gcc gcc-c++ gcc-gfortran openblas-devel openssl-devel portaudio-devel libgomp-devel ffmpeg git-lfs"
     fi
 }
 
