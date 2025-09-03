@@ -6,10 +6,49 @@ This guide walks you through setting up and running the Dora voice chat system w
 
 - Ubuntu 24.04 or similar Linux distribution
 - Python 3.12
+- Conda (Anaconda or Miniconda) - see installation instructions below if not installed
 - Rust toolchain (rustc, cargo)
 - Git with LFS support
 - CUDA toolkit (optional, for GPU acceleration)
 - Sufficient disk space (~30GB for models)
+
+### Installing Conda (if not already installed)
+
+If you don't have conda installed, choose ONE of the following options:
+
+**OPTION A: Install Miniconda (RECOMMENDED - lightweight, ~250MB)**
+
+```bash
+# Download Miniconda installer
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+
+# Run the installer (press Enter for defaults, type 'yes' when asked)
+bash Miniconda3-latest-Linux-x86_64.sh
+
+# Activate conda in your current session
+source ~/.bashrc
+
+# Verify installation
+conda --version
+```
+
+**OPTION B: Install Anaconda (Full distribution, ~3GB)**
+
+```bash
+# Download Anaconda installer
+wget https://repo.anaconda.com/archive/Anaconda3-2024.06-1-Linux-x86_64.sh
+
+# Run the installer (press Enter for defaults, type 'yes' when asked)
+bash Anaconda3-2024.06-1-Linux-x86_64.sh
+
+# Activate conda in your current session
+source ~/.bashrc
+
+# Verify installation
+conda --version
+```
+
+After installation, you should see "(base)" in your terminal prompt.
 
 ## Step 1: Setup Isolated Environment
 
