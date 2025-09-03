@@ -124,7 +124,31 @@ cargo build --release -p dora-openai-websocket
 
 ## Step 3: Download All Models
 
-Navigate to the model-manager directory and download all required models:
+Navigate to the model-manager directory and download all required models.
+
+### Option A: Automated Download (Recommended)
+
+Use the all-in-one download script:
+
+```bash
+# Make sure conda environment is activated
+conda activate dora_voice_chat
+
+cd ../model-manager
+
+# Run the download all script
+./download_all_models.sh
+```
+
+This script will:
+- Download FunASR models for speech recognition
+- Download complete PrimeSpeech package (base models + G2PW + all voices)
+- Verify all downloads
+- Optionally convert models to ONNX format for better performance
+
+### Option B: Manual Download
+
+If you prefer to download models individually:
 
 ```bash
 # Make sure conda environment is activated
