@@ -23,8 +23,7 @@ enable_tools = true
 [[providers]]
 id = "openai"
 kind = "openai"
-api_key = "YOUR_OPENAI_API_KEY_HERE"  # Replace with your OpenAI API key
-# api_key = "env:OPENAI_API_KEY"  # Or use environment variable (when fixed)
+api_key = "env:OPENAI_API_KEY"  # Use environment variable for security
 api_url = "https://api.openai.com/v1"
 proxy = false
 

@@ -9,6 +9,7 @@ Queue-based Text Segmenter
 
 import time
 import re
+import uuid
 import pyarrow as pa
 from dora import Node
 from collections import deque
@@ -38,9 +39,12 @@ def main():
     # Simple queue for segments
     segment_queue = deque()
     is_sending = False
-    segment_index = 0
     
-    print("[Segmenter] Started - Queue-based segmenter")
+    # Segment counter and conversation tracking
+    segment_counter = 0  # Number of segments in queue
+    conversation_id = None  # Reset when counter reaches zero
+    
+    print("[Segmenter] Started - Queue-based segmenter with segment counting")
     print("[Segmenter] Will send first segment immediately, then wait for TTS completion")
     print("[Segmenter] Will skip segments with only punctuation or numbers")
     
@@ -53,16 +57,23 @@ def main():
                 
                 print(f"[Segmenter] Received text chunk: {len(text)} chars")
                 
+                # If counter is 0, start new conversation
+                if segment_counter == 0:
+                    conversation_id = str(uuid.uuid4())[:8]
+                    print(f"[Segmenter] 🆕 New conversation: {conversation_id}")
+                
                 # Check if we should skip this segment
                 if not should_skip_segment(text):
                     # Valid segment - add to queue
                     segment_queue.append({
                         "text": text,
                         "metadata": metadata,
-                        "index": len(segment_queue)
                     })
                     
-                    print(f"[Segmenter] Queued segment, queue size: {len(segment_queue)}")
+                    # Increase counter by 1 (in reality, segmenter might split text further)
+                    # For now, we're treating each incoming text as one segment
+                    segment_counter += 1
+                    print(f"[Segmenter] Queued segment, counter: {segment_counter}")
                 
                 # Try to send a segment if not currently sending
                 # This happens whether we queued the current segment or skipped it
@@ -70,20 +81,28 @@ def main():
                 if not is_sending and segment_queue:
                     segment = segment_queue.popleft()
                     
-                    # Send segment to TTS
+                    # Decrease counter BEFORE sending
+                    segment_counter -= 1
+                    
+                    # Send segment to TTS with metadata
                     node.send_output(
                         "text_segment",
                         pa.array([segment["text"]]),
                         metadata={
-                            "segment_index": segment_index,
-                            "queue_remaining": len(segment_queue),
+                            "segments_remaining": segment_counter,  # After decrease
+                            "conversation_id": conversation_id,
                             **segment["metadata"]
                         }
                     )
                     
-                    print(f"[Segmenter] → Sent segment {segment_index}: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
-                    segment_index += 1
+                    print(f"[Segmenter] → Sent segment: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
+                    print(f"[Segmenter]   Segments remaining: {segment_counter}")
                     is_sending = True
+                    
+                    # Reset conversation if counter reaches zero
+                    if segment_counter == 0:
+                        print(f"[Segmenter] ✅ Conversation {conversation_id} complete")
+                        conversation_id = None
                     
             elif event["id"] == "tts_complete":
                 # TTS completed a segment
@@ -93,18 +112,26 @@ def main():
                 if segment_queue:
                     segment = segment_queue.popleft()
                     
+                    # Decrease counter BEFORE sending
+                    segment_counter -= 1
+                    
                     node.send_output(
                         "text_segment",
                         pa.array([segment["text"]]),
                         metadata={
-                            "segment_index": segment_index,
-                            "queue_remaining": len(segment_queue),
+                            "segments_remaining": segment_counter,  # After decrease
+                            "conversation_id": conversation_id,
                             **segment["metadata"]
                         }
                     )
                     
-                    print(f"[Segmenter] → Sent segment {segment_index}: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
-                    segment_index += 1
+                    print(f"[Segmenter] → Sent segment: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
+                    print(f"[Segmenter]   Segments remaining: {segment_counter}")
+                    
+                    # Reset conversation if counter reaches zero
+                    if segment_counter == 0:
+                        print(f"[Segmenter] ✅ Conversation {conversation_id} complete")
+                        conversation_id = None
                 else:
                     # No more segments to send
                     print("[Segmenter] No more segments in queue")
@@ -117,7 +144,8 @@ def main():
                     print(f"[Segmenter] RESET - clearing {len(segment_queue)} queued segments")
                     segment_queue.clear()
                     is_sending = False
-                    segment_index = 0
+                    segment_counter = 0
+                    conversation_id = None
                     
         elif event["type"] == "STOP":
             break

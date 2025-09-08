@@ -20,6 +20,7 @@ use dora_node_api::dora_core::config::DataId;
 use dora_node_api::dora_core::config::NodeId;
 use dora_node_api::into_vec;
 use dora_node_api::DoraNode;
+use dora_node_api::EventStream;
 use dora_node_api::IntoArrow;
 use dora_node_api::MetadataParameters;
 use rubato::{Resampler, SincFixedIn, SincInterpolationType, SincInterpolationParameters, WindowFunction};
@@ -27,8 +28,8 @@ use fastwebsockets::upgrade;
 use fastwebsockets::Frame;
 use fastwebsockets::OpCode;
 use fastwebsockets::Payload;
+use tokio::process::Command;
 use fastwebsockets::WebSocketError;
-use std::process::Command;
 use futures_concurrency::future::Race;
 use futures_util::future;
 use futures_util::future::Either;
@@ -40,15 +41,19 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::Request;
 use hyper::Response;
-use rand::random;
 use serde;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json;
-use std::collections::HashMap;
-use std::fs;
-use std::io::{self, Write};
 use tokio::net::TcpListener;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use once_cell::sync::OnceCell;
+
+// Global state for sharing the Dora node connection across WebSocket clients
+static DORA_NODE: OnceCell<Arc<Mutex<DoraNode>>> = OnceCell::new();
+static DORA_EVENTS: OnceCell<Arc<Mutex<EventStream>>> = OnceCell::new();
+static MAAS_PID: OnceCell<Arc<Mutex<Option<u32>>>> = OnceCell::new();
 
 // Helper function for hybrid logging - tries send_log first, falls back to println
 #[allow(dead_code)]
@@ -265,36 +270,6 @@ fn convert_f32_to_pcm16(samples: &[f32]) -> Vec<u8> {
     pcm16_bytes
 }
 
-/// Replaces a placeholder in a file and writes the result to an output file.
-///
-/// # Arguments
-///
-/// * `input_path` - Path to the input file with placeholder text.
-/// * `placeholder` - The placeholder text to search for (e.g., "{{PLACEHOLDER}}").
-/// * `replacement` - The text to replace the placeholder with.
-/// * `output_path` - Path to write the modified content.
-fn replace_placeholder_in_file(
-    input_path: &str,
-    replacement: &HashMap<String, String>,
-    output_path: &str,
-) -> io::Result<()> {
-    // Read the file content into a string
-    let mut content = fs::read_to_string(input_path)?;
-
-    // Replace the placeholder
-    for (placeholder, replacement) in replacement {
-        // Ensure the placeholder is wrapped in curly braces
-        // Replace the placeholder with the replacement text
-        content = content.replace(placeholder, replacement);
-    }
-
-    // Write the modified content to the output file
-    let mut file = fs::File::create(output_path)?;
-    file.write_all(content.as_bytes())?;
-
-    Ok(())
-}
-
 
 async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     println!("WebSocket client connected, waiting for upgrade completion");
@@ -344,59 +319,9 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         println!("Note: Client requested a Qwen/GGUF model, will use whatever is configured in the template");
     }
     
-    // Generate a unique ID for this connection
-    // Each connection needs its own dataflow because the WebSocket server is a dynamic node
-    let id = random::<u16>();
-    let node_id = format!("server-{}", id);
-    let dataflow = format!("{}-{}.yml", input_audio_transcription, id);
-    let mut template = format!("{}-template-metal.yml", input_audio_transcription);
-    
-    println!("Looking for template file: {}", template);
-    if !std::path::Path::new(&template).exists() {
-        println!("WARNING: Template file not found: {}", template);
-        // Try to find any available template as fallback
-        let fallback_template = "whisper-template-metal.yml";
-        if std::path::Path::new(fallback_template).exists() {
-            println!("Using fallback template: {}", fallback_template);
-            template = fallback_template.to_string();
-        } else {
-            println!("Available template files:");
-            if let Ok(entries) = std::fs::read_dir(".") {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.extension().and_then(|s| s.to_str()) == Some("yml") 
-                            && path.to_string_lossy().contains("template") {
-                            println!("  - {}", path.display());
-                            // Use the first template we find as fallback
-                            if template == format!("{input_audio_transcription}-template-metal.yml") {
-                                template = path.to_string_lossy().to_string();
-                                println!("Using fallback template: {}", template);
-                            }
-                        }
-                    }
-                }
-            }
-            // If still no template found, return error
-            if !std::path::Path::new(&template).exists() {
-                println!("ERROR: No template files found!");
-                return Err(WebSocketError::InvalidConnectionHeader);
-            }
-        }
-    }
-    
-    // Create the dataflow file from template
-    println!("Creating dataflow '{}' from template '{}' with node_id '{}'", dataflow, template, node_id);
-    let mut replacements = HashMap::new();
-    replacements.insert("NODE_ID".to_string(), node_id.clone());
-    replacements.insert("LLM_ID".to_string(), llm);
-    replace_placeholder_in_file(&template, &replacements, &dataflow).unwrap();
-    // Copy configuration file but replace the node ID with "server-id"
-    // Read the configuration file and replace the node ID with "server-id"
-    // Send session responses FIRST before starting dataflow
-    // This allows moly to transition from "connecting" to "listening"
+    // Prepare session response but DON'T send yet - wait until maas-client is ready
     let session_response = serde_json::json!({
-        "id": format!("session_{}", node_id),
+        "id": format!("session_wserver"),
         "object": "realtime.session",
         "model": session.model.clone(),
         "modalities": session.modalities.clone(),
@@ -412,10 +337,104 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         "max_response_output_tokens": session.max_response_output_tokens,
     });
     
+    println!("Session response prepared, but will wait to send until maas-client is ready...");
+    
+    // NOTE: Dynamic nodes are now connected at server startup, not per-client
+    // The wserver and maas-client nodes are initialized in main() when --name is provided
+    // This avoids reconnecting for each client session
+    
+    // For now, we still need to create a Dora node connection per client
+    // Use the shared node connection from main()
+    println!("Using shared Dora node connection for client session...");
+    
+    let node_arc = match DORA_NODE.get() {
+        Some(n) => n.clone(),
+        None => {
+            eprintln!("❌ Dora node not initialized. Make sure to run with --name argument");
+            let _ = ws.write_frame(Frame::text(Payload::Borrowed(r#"{
+                "type": "error",
+                "error": {
+                    "message": "Server not connected to dataflow. Please restart the server with --name argument.",
+                    "type": "server_error",
+                    "code": "dataflow_not_connected"
+                }
+            }"#.as_bytes()))).await;
+            return Ok(());
+        }
+    };
+    
+    let events_arc = match DORA_EVENTS.get() {
+        Some(e) => e.clone(),
+        None => {
+            eprintln!("❌ Dora events not initialized");
+            return Ok(());
+        }
+    };
+    
+    // Kill existing maas-client if any and spawn a new one with updated config
+    if let Some(pid_arc) = MAAS_PID.get() {
+        let mut pid_guard = pid_arc.lock().await;
+        if let Some(pid) = *pid_guard {
+            println!("Killing existing maas-client with PID: {}", pid);
+            // Try to kill the process
+            let _ = std::process::Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output();
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+        
+        // Spawn new maas-client with potentially updated config
+        println!("Spawning new maas-client for this session...");
+        let config_path = "/Users/yuechen/home/fresh/dora/examples/chatbot-openai-0905/maas_mcp_browser_config.toml";
+        
+        match tokio::process::Command::new("cargo")
+            .arg("run")
+            .arg("-p")
+            .arg("dora-maas-client")
+            .arg("--")
+            .arg("--name")
+            .arg("maas-client")
+            .env("CONFIG", config_path)
+            .spawn() {
+            Ok(mut child) => {
+                if let Some(pid) = child.id() {
+                    println!("✅ New maas-client spawned with PID: {}", pid);
+                    println!("   Using config: {}", config_path);
+                    *pid_guard = Some(pid);
+                    
+                    // Monitor the process in the background
+                    tokio::spawn(async move {
+                        match child.wait().await {
+                            Ok(status) => {
+                                if !status.success() {
+                                    eprintln!("⚠️ maas-client exited with status: {:?}", status);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️ Error waiting for maas-client: {}", e);
+                            }
+                        }
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️ Failed to spawn maas-client: {}", e);
+            }
+        }
+        
+        // Wait for maas-client to be ready before sending session acknowledgments
+        println!("⏳ Waiting 2 seconds for maas-client to connect to dataflow...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        println!("✅ maas-client should now be ready");
+    }
+    
+    // NOW send session acknowledgments after maas-client is ready
+    println!("Sending session acknowledgments to client now that maas-client is ready...");
+    
     let serialized_data = OpenAIRealtimeResponse::SessionCreated {
         session: session_response.clone(),
     };
-
     let payload =
         Payload::Bytes(Bytes::from(serde_json::to_string(&serialized_data).unwrap()).into());
     let frame = Frame::text(payload);
@@ -432,111 +451,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     println!("Sending session.updated acknowledgment to client");
     ws.write_frame(frame_updated).await?;
     
-    // Start the dataflow using dora CLI
-    println!("Starting dataflow {} with node_id {}", dataflow, node_id);
-    let output = std::process::Command::new("dora")
-        .arg("start")
-        .arg(&dataflow)
-        .arg("--name")
-        .arg(&node_id)
-        .arg("--detach")
-        .output()
-        .expect("Failed to execute dora start command");
-    
-    if !output.status.success() {
-        eprintln!("Failed to start dataflow: {}", String::from_utf8_lossy(&output.stderr));
-        ws.write_frame(Frame::close(1011, b"Failed to start dataflow")).await?;
-        return Err(WebSocketError::InvalidConnectionHeader);
-    }
-    
-    println!("✅ Dataflow started successfully with node_id: {}", node_id);
-    
-    // Poll for dataflow to be fully initialized instead of fixed wait
-    println!("Waiting for dataflow to initialize...");
-    let mut retry_count = 0;
-    const MAX_RETRIES: u32 = 30;  // 30 * 200ms = 6 seconds max wait
-    const POLL_INTERVAL_MS: u64 = 200;
-    
-    loop {
-        // Check if dataflow is running using dora list
-        let list_output = Command::new("dora")
-            .arg("list")
-            .output()
-            .expect("Failed to execute dora list command");
-        
-        if list_output.status.success() {
-            let output_str = String::from_utf8_lossy(&list_output.stdout);
-            // Check if our node_id appears in the list and is Running
-            if output_str.contains(&node_id) && output_str.contains("Running") {
-                println!("✅ Dataflow {} is confirmed running", node_id);
-                // Add a small additional delay to ensure all nodes are initialized
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                break;
-            }
-        }
-        
-        retry_count += 1;
-        if retry_count >= MAX_RETRIES {
-            eprintln!("❌ Timeout waiting for dataflow {} to be ready after {} seconds", 
-                     node_id, (MAX_RETRIES as u64 * POLL_INTERVAL_MS) / 1000);
-            ws.write_frame(Frame::close(1011, b"Dataflow initialization timeout")).await?;
-            return Err(WebSocketError::InvalidConnectionHeader);
-        }
-        
-        tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-    
-    // Try to initialize the Dora node with retries
-    println!("Attempting to initialize Dora node with ID: {}", node_id);
-    
-    let mut node_init_retries = 0;
-    const MAX_NODE_INIT_RETRIES: u32 = 3;
-    const NODE_INIT_TIMEOUT_SECS: u64 = 10;  // Longer timeout per attempt
-    
-    let (mut node, mut events) = loop {
-        node_init_retries += 1;
-        println!("Dynamic node connection attempt {} of {}", node_init_retries, MAX_NODE_INIT_RETRIES);
-        
-        let node_id_clone = node_id.clone();
-        let node_init_handle = tokio::task::spawn_blocking(move || {
-            DoraNode::init_from_node_id(NodeId::from(node_id_clone))
-        });
-        
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(NODE_INIT_TIMEOUT_SECS),
-            node_init_handle
-        ).await {
-            Ok(Ok(Ok((n, e)))) => {
-                println!("✅ Dora node initialized successfully as '{}' on attempt {}", node_id, node_init_retries);
-                break (n, e);
-            },
-            Ok(Ok(Err(e))) if node_init_retries < MAX_NODE_INIT_RETRIES => {
-                println!("⚠️  Failed to initialize Dora node '{}' on attempt {}: {:?}", node_id, node_init_retries, e);
-                println!("Waiting 1 second before retry...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                continue;
-            },
-            Ok(Err(_)) | Err(_) if node_init_retries < MAX_NODE_INIT_RETRIES => {
-                println!("⚠️  Dora node initialization timed out for '{}' on attempt {}", node_id, node_init_retries);
-                println!("Waiting 1 second before retry...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                continue;
-            },
-            _ => {
-                println!("❌ Failed to initialize Dora node '{}' after {} attempts", node_id, MAX_NODE_INIT_RETRIES);
-                println!("Continuing without Dora node connection - audio forwarding will not work");
-                // Just maintain the websocket connection
-                loop {
-                    match ws.read_frame().await {
-                        Ok(frame) if frame.opcode == OpCode::Close => break,
-                        Ok(_) => continue,
-                        Err(_) => break,
-                    }
-                }
-                return Ok(());
-            }
-        }
-    };
+    let mut node = node_arc.lock().await;
+    let mut events = events_arc.lock().await;
     
     // Create resampler with fixed buffer size for microphone input
     const DOWNSAMPLE_CHUNK_SIZE: usize = 4800; // 200ms at 24kHz
@@ -559,26 +475,30 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     ).expect("Failed to create downsampler");
     
     let mut audio_buffer = Vec::new(); // Buffer for microphone audio
+    // Segment counting is now handled via metadata from primespeech
     
     println!("🚀 Starting main event loop with fixed-size resampler");
     println!("📊 Pipeline: WebSocket → ASR → MaaS → Text-Segmenter → TTS → Audio → WebSocket");
     println!("👂 Listening for audio input and text output from dataflow nodes...");
     println!("" );
     
+    // Wait for client to send greeting via ResponseCreate message
+    println!("⏳ Waiting for client to send greeting via response.create message...");
+    
     let mut audio_chunks_received = 0;
     let mut text_chunks_sent = 0;
     let mut last_activity = std::time::Instant::now();
+    let mut should_send_completion = false; // Track if we need to send completion events after audio
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
         let event_stream = (event_fut, frame_fut).race();
-        let mut finished = false;
         let frame = match event_stream.await {
             future::Either::Left(Some(ev)) => {
                 let frame = match ev {
                     dora_node_api::Event::Input {
                         id,
-                        metadata: _,
+                        metadata,
                         data,
                     } => {
                         let now = std::time::Instant::now();
@@ -628,24 +548,34 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         } else if id.contains("audio") {
                             audio_chunks_received += 1;
                             
+                            // Extract segments_remaining from metadata
+                            let segments_remaining = if let Some(param) = metadata.parameters.get("segments_remaining") {
+                                match param {
+                                    dora_node_api::Parameter::Integer(i) => *i as u32,
+                                    _ => 999
+                                }
+                            } else {
+                                999
+                            }; // Default to high number if not present
+                            
                             // Log audio processing with enhanced detail
                             if id.contains("primespeech") {
                                 println!("┌─ [{}ms] 🔊 TTS OUTPUT", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
                                 println!("│  Audio: {} samples, {} bytes", data.len(), data.get_array_memory_size());
-                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("│  Stats: Chunk #{}, segments_remaining: {}", audio_chunks_received, segments_remaining);
                                 println!("└─ 📤 Forwarding to client as audio data");
                             } else if id.contains("audio-player") {
                                 println!("┌─ [{}ms] 🎵 AUDIO PLAYBACK", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
                                 println!("│  Audio: {} samples", data.len());
-                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("│  Stats: Chunk #{}, segments_remaining: {}", audio_chunks_received, segments_remaining);
                                 println!("└─ 📤 Forwarding to client");
                             } else {
                                 println!("┌─ [{}ms] 🎵 AUDIO OUTPUT", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
                                 println!("│  Audio: {} samples", data.len());
-                                println!("│  Stats: Chunk #{}", audio_chunks_received);
+                                println!("│  Stats: Chunk #{}, segments_remaining: {}", audio_chunks_received, segments_remaining);
                                 println!("└─ 📤 Forwarding to client");
                             }
                             
@@ -725,12 +655,19 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 content_index: 123,
                                 delta: general_purpose::STANDARD.encode(data),
                             };
-                            finished = true;
 
                             let frame = Frame::text(Payload::Bytes(
                                 Bytes::from(serde_json::to_string(&serialized_data).unwrap())
                                     .into(),
                             ));
+                            
+                            // Check if this is the last segment and set flag
+                            if segments_remaining == 0 {
+                                println!("🎯 Last segment detected (segments_remaining=0), will send completion events AFTER audio");
+                                should_send_completion = true;
+                            }
+                            
+                            // Return the audio frame to be sent first
                             frame
                         } else if id.contains("speech_started") {
                             let serialized_data =
@@ -744,17 +681,54 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                     .into(),
                             ));
                             frame
-                        } else if id.contains("speech_stopped") || id.contains("speech_ended") {
-                            let serialized_data =
-                                OpenAIRealtimeResponse::InputAudioBufferSpeechStopped {
-                                    audio_end_ms: 123,
-                                    item_id: "123".to_string(),
-                                };
-
+                        } else if id.contains("question_ended") {
+                            println!("❓ Question ended detected - complete sentence, triggering LLM response");
+                            
+                            // Send speech stopped event to indicate a complete question
+                            let speech_stopped = OpenAIRealtimeResponse::InputAudioBufferSpeechStopped {
+                                audio_end_ms: 123,
+                                item_id: "123".to_string(),
+                            };
                             let frame = Frame::text(Payload::Bytes(
-                                Bytes::from(serde_json::to_string(&serialized_data).unwrap())
-                                    .into(),
+                                Bytes::from(serde_json::to_string(&speech_stopped).unwrap()).into(),
                             ));
+                            
+                            // Queue additional events to send after this frame
+                            // When using server_vad, we need to:
+                            // 1. Commit the audio buffer 
+                            // 2. Create a response
+                            
+                            // Store the frame to return, but also queue commit and response
+                            let commit_msg = serde_json::json!({
+                                "type": "input_audio_buffer.committed",
+                                "item_id": "123",
+                                "audio": ""  // Empty audio since we already sent it
+                            });
+                            let commit_frame = Frame::text(Payload::Bytes(
+                                Bytes::from(serde_json::to_string(&commit_msg).unwrap()).into(),
+                            ));
+                            
+                            // Create response to trigger LLM
+                            let create_response = serde_json::json!({
+                                "type": "response.create",
+                                "response": {
+                                    "modalities": ["text", "audio"],
+                                    "instructions": null,
+                                    "voice": null,
+                                    "output_audio_format": "pcm16",
+                                    "tools": [],
+                                    "tool_choice": "none",
+                                    "temperature": 0.8,
+                                    "max_output_tokens": 4096
+                                }
+                            });
+                            let response_frame = Frame::text(Payload::Bytes(
+                                Bytes::from(serde_json::to_string(&create_response).unwrap()).into(),
+                            ));
+                            
+                            // Send all three events
+                            // Note: We can only return one frame here, so we'll need to handle this differently
+                            // For now, just send the speech_stopped event
                             frame
                         } else {
                             // Ignore other inputs (e.g., question_ended, is_speaking, speech_probability, log)
@@ -781,11 +755,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
 
                         match data {
                             OpenAIRealtimeMessage::InputAudioBufferAppend { audio } => {
-                                // println!("Received audio buffer from client, length: {}", audio.len());
+                                // println!("📡 Received audio buffer from client, base64 length: {}", audio.len());
                                 let f32_data = audio;
                                 // Decode base64 encoded audio data
                                 let f32_data = f32_data.trim();
                                 if f32_data.is_empty() {
+                                    println!("⚠️ Empty audio buffer received, skipping");
                                     continue;
                                 }
 
@@ -833,18 +808,34 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 }
                             }
                             OpenAIRealtimeMessage::InputAudioBufferCommit => {
+                                println!("✅ Received InputAudioBufferCommit from client");
                                 // Don't break - just continue processing
                                 // This allows continuous audio streaming
                                 continue;
                             }
                             OpenAIRealtimeMessage::ResponseCreate { response } => {
+                                println!("📨 Received ResponseCreate from client with instructions");
                                 if let Some(text) = response.instructions {
-                                    node.send_output(
+                                    println!("🎯 Forwarding greeting instructions to maas-client: {}", text);
+                                    // Mark that we're expecting greeting audio from TTS
+                                    // Segment counting now handled via metadata
+                                    match node.send_output(
                                         DataId::from("text".to_string()),
                                         Default::default(),
                                         text.into_arrow(),
-                                    )
-                                    .unwrap();
+                                    ) {
+                                        Ok(_) => {
+                                            println!("✅ Successfully sent greeting to maas-client");
+                                            println!("⏳ Waiting for LLM response and TTS audio...");
+                                            // Don't send ResponseDone yet - wait for audio to arrive
+                                        }
+                                        Err(e) => {
+                                            eprintln!("⚠️ Failed to send greeting to maas-client: {:?}", e);
+                                            eprintln!("   This might happen if maas-client isn't fully connected yet");
+                                            // Segment counting now handled via metadata
+                                            // Don't crash, just continue - maas-client might connect later
+                                        }
+                                    }
                                 }
                             }
                             _ => {}
@@ -857,25 +848,95 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             future::Either::Right(Err(_)) => break,
         };
         if let Some(frame) = frame {
-            ws.write_frame(frame).await?;
-        }
-        if finished {
-            let serialized_data = OpenAIRealtimeResponse::ResponseDone {
-                response: serde_json::Value::Null,
+            // Check if this is a question_ended event that needs additional frames
+            let is_question_ended = if let Frame { payload: Payload::Bytes(ref data), .. } = frame {
+                let text = String::from_utf8_lossy(data);
+                text.contains("input_audio_buffer.speech_stopped")
+            } else {
+                false
             };
-
-            let payload = Payload::Bytes(
-                Bytes::from(serde_json::to_string(&serialized_data).unwrap()).into(),
-            );
-            println!("Sending response done: {:?}", serialized_data);
-            let frame = Frame::text(payload);
+            
             ws.write_frame(frame).await?;
-        };
+            
+            // If question ended, send commit and response.create to trigger LLM
+            if is_question_ended {
+                println!("📤 Sending commit and response.create after question_ended");
+                
+                // Send input_audio_buffer.committed
+                let commit_msg = serde_json::json!({
+                    "type": "input_audio_buffer.committed",
+                    "item_id": "123",
+                    "audio": ""
+                });
+                let commit_frame = Frame::text(Payload::Bytes(
+                    Bytes::from(serde_json::to_string(&commit_msg).unwrap()).into(),
+                ));
+                ws.write_frame(commit_frame).await?;
+                
+                // Trigger response creation (this is what makes server_vad work)
+                // The server needs to automatically create a response when speech ends
+                println!("🤖 Triggering LLM response after speech ended");
+                
+                // Send the user's audio to the LLM by committing and creating response
+                // The audio has already been forwarded to ASR for transcription
+                // Now we need to tell the system to generate a response
+            }
+            
+            // Send completion events immediately after audio frame if this was the last segment
+            if should_send_completion {
+                println!("📤 Sending completion events after last audio segment");
+                
+                // Send response.audio.done
+                let audio_done = OpenAIRealtimeResponse::ResponseAudioDone {
+                    response_id: "123".to_string(),
+                    item_id: "123".to_string(),
+                    output_index: 123,
+                    content_index: 123,
+                };
+                let audio_done_frame = Frame::text(Payload::Bytes(
+                    Bytes::from(serde_json::to_string(&audio_done).unwrap()).into(),
+                ));
+                ws.write_frame(audio_done_frame).await?;
+                println!("✅ Sent response.audio.done");
+                
+                // Send response.done  
+                let response_done = OpenAIRealtimeResponse::ResponseDone {
+                    response: serde_json::json!({
+                        "id": "123",
+                        "status": "completed",
+                        "status_details": null,
+                        "output": [],
+                        "usage": {
+                            "total_tokens": 0,
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                            "input_token_details": {
+                                "cached_tokens": 0,
+                                "text_tokens": 0,
+                                "audio_tokens": 0
+                            },
+                            "output_token_details": {
+                                "cached_tokens": 0,
+                                "text_tokens": 0,
+                                "audio_tokens": 0
+                            }
+                        }
+                    }),
+                };
+                let response_done_frame = Frame::text(Payload::Bytes(
+                    Bytes::from(serde_json::to_string(&response_done).unwrap()).into(),
+                ));
+                ws.write_frame(response_done_frame).await?;
+                println!("✅ Sent response.done - conversation complete");
+                
+                // Reset flag
+                should_send_completion = false;
+            }
+        }
     }
     
     // Connection closed
     println!("🔌 WebSocket client disconnected");
-    println!("   Dataflow '{}' with node_id '{}' will be stopped", dataflow, node_id);
 
     Ok(())
 }
@@ -910,11 +971,125 @@ fn main() -> Result<(), WebSocketError> {
         .unwrap();
 
     rt.block_on(async move {
+        // Static dataflow should be started separately via CLI
+        // Example: dora start whisper-template-metal.yml --name static-dataflow --detach
+        println!("WebSocket server starting...");
+        println!("Note: Static dataflow should be started separately via CLI");
+        
+        // Parse command line arguments to check for --name
+        let args: Vec<String> = std::env::args().collect();
+        let mut node_name: Option<String> = None;
+        
+        // Look for --name argument
+        for i in 0..args.len() {
+            if args[i] == "--name" && i + 1 < args.len() {
+                node_name = Some(args[i + 1].clone());
+                break;
+            }
+        }
+        
+        // // Automatic static dataflow starting (COMMENTED OUT - requires manual start)
+        // // Get the absolute path to the dataflow file
+        // let dataflow_path = if let Ok(path) = std::env::var("DATAFLOW_PATH") {
+        //     path
+        // } else {
+        //     // Try to find the dataflow file relative to the project root
+        //     let possible_paths = vec![
+        //         "whisper-template-metal.yml",
+        //         "examples/chatbot-openai-0905/whisper-template-metal.yml",
+        //         "../examples/chatbot-openai-0905/whisper-template-metal.yml",
+        //         "../../examples/chatbot-openai-0905/whisper-template-metal.yml",
+        //     ];
+        //     
+        //     let mut found_path = None;
+        //     for path in possible_paths {
+        //         if std::path::Path::new(path).exists() {
+        //             found_path = Some(path.to_string());
+        //             break;
+        //         }
+        //     }
+        //     
+        //     found_path.unwrap_or_else(|| {
+        //         eprintln!("WARNING: Could not find whisper-template-metal.yml");
+        //         eprintln!("Please set DATAFLOW_PATH environment variable or run from the correct directory");
+        //         "whisper-template-metal.yml".to_string()
+        //     })
+        // };
+        // 
+        // // Check if any dataflow is already running
+        // let list_output = Command::new("dora")
+        //     .arg("list")
+        //     .output()
+        //     .await
+        //     .expect("Failed to execute dora list command");
+        // 
+        // let list_str = String::from_utf8_lossy(&list_output.stdout);
+        // // Check if output contains a UUID (indicates a dataflow is running)
+        // // The format is: UUID  Name  Status
+        // let has_running_dataflow = list_str.lines()
+        //     .skip(1) // Skip header
+        //     .any(|line| !line.trim().is_empty());
+        //     
+        // if !has_running_dataflow {
+        //     println!("Starting dataflow with persistent nodes...");
+        //     
+        //     let output = Command::new("dora")
+        //         .arg("start")
+        //         .arg(&dataflow_path)
+        //         .arg("--detach")
+        //         .output()
+        //         .await
+        //         .expect("Failed to execute dora start command");
+        //     
+        //     if !output.status.success() {
+        //         eprintln!("Failed to start dataflow: {}", String::from_utf8_lossy(&output.stderr));
+        //         return Err(WebSocketError::InvalidConnectionHeader);
+        //     }
+        //     
+        //     println!("✅ Dataflow started successfully");
+        //     
+        //     // Wait for nodes to initialize
+        //     println!("Waiting for nodes to initialize...");
+        //     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        // } else {
+        //     println!("✅ Dataflow already running");
+        // }
+        
+        // Connect to dataflow as dynamic node if --name is provided
+        if let Some(name) = &node_name {
+            println!("Connecting to dataflow as dynamic node: {}", name);
+            
+            // Try to connect to dataflow
+            match DoraNode::init_from_node_id(NodeId::from(name.clone())) {
+                Ok((node, events)) => {
+                    println!("✅ Successfully connected to dataflow as '{}'", name);
+                    
+                    // Store the node and events globally for sharing with WebSocket clients
+                    DORA_NODE.set(Arc::new(Mutex::new(node))).unwrap_or_else(|_| panic!("Failed to set DORA_NODE"));
+                    DORA_EVENTS.set(Arc::new(Mutex::new(events))).unwrap_or_else(|_| panic!("Failed to set DORA_EVENTS"));
+                    
+                    // Initialize MAAS_PID storage (will be set when client connects)
+                    MAAS_PID.set(Arc::new(Mutex::new(None))).unwrap_or_else(|_| panic!("Failed to set MAAS_PID"));
+                    
+                    println!("✅ Dora node and events stored globally");
+                    println!("⏳ Waiting for WebSocket client to connect before spawning maas-client...");
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to connect to dataflow as '{}': {:?}", name, e);
+                    eprintln!("Make sure the dataflow contains the node '{}'", name);
+                    return Err(WebSocketError::InvalidConnectionHeader);
+                }
+            }
+        } else {
+            println!("Running in standalone mode (no --name argument provided)");
+            println!("To connect as dynamic node, run with: --name wserver");
+        }
+        
         let port = std::env::var("PORT").unwrap_or_else(|_| "8123".to_string());
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
         let addr = format!("{}:{}", host, port);
         let listener = TcpListener::bind(&addr).await?;
-        println!("Server started, listening on {}", addr);
+        println!("WebSocket server ready, listening on {}", addr);
         
         loop {
             let (stream, _) = listener.accept().await?;

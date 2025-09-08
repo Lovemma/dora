@@ -1,0 +1,45 @@
+[package]
+name = "realtime-cli-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+
+# WebSocket and networking
+futures-util = "0.3"
+futures = "0.3"
+url = "2.5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Audio handling
+base64 = "0.22"
+hound = "3.5"  # For WAV file reading/writing
+rodio = { version = "0.19", optional = true }  # For audio playback
+
+# CLI and logging
+clap = { version = "4.5", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+colored = "2.1"
+
+# Error handling
+eyre = "0.6"
+thiserror = "1.0"
+
+# Utils
+uuid = { version = "1.10", features = ["v4"] }
+chrono = "0.4"
+
+[features]
+default = ["audio-playback"]
+audio-playback = ["rodio"]
+
+[[bin]]
+name = "realtime-cli"
+path = "src/main.rs"

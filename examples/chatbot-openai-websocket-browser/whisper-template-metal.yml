@@ -149,15 +149,6 @@ nodes:
       
       # Logging
       LOG_LEVEL: INFO  # DEBUG, INFO, WARNING, ERROR
-  
-  # Audio player
-  - id: audio-player
-    path: dynamic
-    inputs:
-      audio: primespeech/audio
-    outputs:
-      - buffer_status
-      - status
 
   # Simple viewer to see the flow
   - id: viewer

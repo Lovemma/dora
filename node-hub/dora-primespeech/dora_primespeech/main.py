@@ -183,6 +183,8 @@ def main():
                                     "session_id": session_id,
                                     "request_id": request_id,
                                     "segment_index": segment_index,
+                                    "segments_remaining": metadata.get("segments_remaining", 0),
+                                    "conversation_id": metadata.get("conversation_id"),
                                     "fragment_num": fragment_num,
                                     "sample_rate": sample_rate,
                                     "duration": fragment_duration,
@@ -207,7 +209,7 @@ def main():
                         
                         send_log(node, "INFO", f"Synthesized: {audio_duration:.2f}s audio in {synthesis_time:.3f}s", config.LOG_LEVEL)
                         
-                        # Send audio output
+                        # Send audio output with segment counting metadata
                         node.send_output(
                             "audio",
                             pa.array([audio_array]),
@@ -215,6 +217,8 @@ def main():
                                 "session_id": session_id,
                                 "request_id": request_id,
                                 "segment_index": segment_index,
+                                "segments_remaining": metadata.get("segments_remaining", 0),
+                                "conversation_id": metadata.get("conversation_id"),
                                 "sample_rate": sample_rate,
                                 "duration": audio_duration,
                                 "synthesis_time": synthesis_time,
@@ -224,14 +228,16 @@ def main():
                             }
                         )
                     
-                    # Send segment completion signal
+                    # Send segment completion signal with metadata
                     node.send_output(
                         "segment_complete",
                         pa.array(["completed"]),
                         metadata={
                             "session_id": session_id,
                             "request_id": request_id,
-                            "segment_index": segment_index
+                            "segment_index": segment_index,
+                            "segments_remaining": metadata.get("segments_remaining", 0),
+                            "conversation_id": metadata.get("conversation_id")
                         }
                     )
                     send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)

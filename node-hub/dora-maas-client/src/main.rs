@@ -177,6 +177,14 @@ impl ChatSession {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check if running as dynamic node with --name argument
+    let args: Vec<String> = std::env::args().collect();
+    let node_id = if args.len() > 2 && args[1] == "--name" {
+        Some(args[2].clone())
+    } else {
+        None
+    };
+    
     // Load configuration
     let config = Config::load().context("Failed to load configuration")?;
     
@@ -204,8 +212,32 @@ async fn main() -> Result<()> {
     // Create provider clients
     let clients = config.create_clients();
     
-    // Initialize Dora node
-    let (mut node, events) = DoraNode::init_from_env()?;
+    // Initialize Dora node - use node_id if provided (dynamic node), otherwise from env
+    let (mut node, events) = if let Some(id) = node_id {
+        eprintln!("Initializing as dynamic node with ID: {}", id);
+        match DoraNode::init_from_node_id(dora_node_api::dora_core::config::NodeId::from(id.clone())) {
+            Ok((n, e)) => {
+                eprintln!("✅ Successfully initialized dynamic node '{}'", id);
+                (n, e)
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to initialize dynamic node '{}': {:?}", id, e);
+                return Err(e.into());
+            }
+        }
+    } else {
+        eprintln!("Initializing from environment variables...");
+        match DoraNode::init_from_env() {
+            Ok((n, e)) => {
+                eprintln!("✅ Successfully initialized node from environment");
+                (n, e)
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to initialize node from environment: {:?}", e);
+                return Err(e.into());
+            }
+        }
+    };
     
     // Send initialization logs
     send_log(&mut node, "INFO", "MaaS Client initialized")?;
@@ -216,8 +248,14 @@ async fn main() -> Result<()> {
     let mut sessions: HashMap<String, ChatSession> = HashMap::new();
     
     // Process events
+    eprintln!("🔵 [MAAS-CLIENT] Starting event loop...");
     let events = futures::executor::block_on_stream(events);
+    eprintln!("🔵 [MAAS-CLIENT] Event stream created, waiting for events...");
+    
+    let mut event_count = 0;
     for event in events {
+        event_count += 1;
+        eprintln!("🔵 [MAAS-CLIENT] Received event #{}: {:?}", event_count, event);
         match event {
             Event::Input { id, data, metadata } => {
                 // Extract session ID from metadata
