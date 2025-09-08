@@ -332,6 +332,13 @@ async fn main() -> Result<()> {
                         
                         send_log(&mut node, "DEBUG", &format!("Routing to provider '{}' with model '{}'", provider_id, model_name))?;
                         
+                        // Send "processing" status when starting API call
+                        node.send_output(
+                            DataId::from("status".to_string()),
+                            Default::default(),
+                            StringArray::from(vec!["processing"]),
+                        ).context("Failed to send status output")?;
+                        
                         // Make API call - use streaming if enabled
                         if config.enable_streaming.unwrap_or(false) {
                             // Streaming mode
@@ -395,6 +402,13 @@ async fn main() -> Result<()> {
                                     send_log(&mut node, "INFO", 
                                         &format!("Streaming complete: {} chars in {} segments (from {} chunks)", 
                                             final_text.len(), segment_count, chunk_count))?;
+                                    
+                                    // Send "complete" status
+                                    node.send_output(
+                                        DataId::from("status".to_string()),
+                                        Default::default(),
+                                        StringArray::from(vec!["complete"]),
+                                    ).context("Failed to send status output")?;
                                     
                                     // FIX: Handle tool calls from streaming response
                                     // When the LLM returns tool calls, we execute them and loop back
@@ -475,6 +489,14 @@ async fn main() -> Result<()> {
                                 }
                                 Ok(Err(e)) => {
                                     send_log(&mut node, "ERROR", &format!("Streaming error: {}", e))?;
+                                    
+                                    // Send "error" status
+                                    node.send_output(
+                                        DataId::from("status".to_string()),
+                                        Default::default(),
+                                        StringArray::from(vec![format!("error: {}", e)]),
+                                    ).context("Failed to send status output")?;
+                                    
                                     node.send_output(
                                         DataId::from("text".to_string()),
                                         Default::default(),
@@ -483,6 +505,13 @@ async fn main() -> Result<()> {
                                 }
                                 Err(e) => {
                                     send_log(&mut node, "ERROR", &format!("Task error: {}", e))?;
+                                    
+                                    // Send "error" status
+                                    node.send_output(
+                                        DataId::from("status".to_string()),
+                                        Default::default(),
+                                        StringArray::from(vec![format!("error: {}", e)]),
+                                    ).context("Failed to send status output")?;
                                 }
                             }
                         } else {
@@ -508,13 +537,25 @@ async fn main() -> Result<()> {
                                         StringArray::from(vec![content.as_str()]),
                                     ).context("Failed to send text output")?;
                                     
-                                    // Log already sent above
+                                    // Send "complete" status
+                                    node.send_output(
+                                        DataId::from("status".to_string()),
+                                        Default::default(),
+                                        StringArray::from(vec!["complete"]),
+                                    ).context("Failed to send status output")?;
                                 }
                             }
                             Err(e) => {
                                 let error_msg = format!("Error: {}", e);
                                 eprintln!("[MAIN] API call error: {}", error_msg);
                                 send_log(&mut node, "ERROR", &error_msg)?;
+                                
+                                // Send "error" status
+                                node.send_output(
+                                    DataId::from("status".to_string()),
+                                    Default::default(),
+                                    StringArray::from(vec![format!("error: {}", e)]),
+                                ).context("Failed to send status output")?;
                                 
                                 // Send error response
                                 node.send_output(

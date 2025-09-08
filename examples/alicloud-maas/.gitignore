@@ -1,0 +1,11 @@
+# Ignore actual config file with API key
+alicloud_config.toml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Dora runtime files
+*.log
+.dora/

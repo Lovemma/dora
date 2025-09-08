@@ -38,6 +38,7 @@ fn default_log_level() -> String {
 pub enum ProviderConfig {
     Openai(OpenaiConfig),
     Gemini(GeminiConfig),
+    Alicloud(AlicloudConfig),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -51,6 +52,15 @@ pub struct OpenaiConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct GeminiConfig {
+    pub id: String,
+    pub api_key: String,
+    pub api_url: String,
+    #[serde(default)]
+    pub proxy: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AlicloudConfig {
     pub id: String,
     pub api_key: String,
     pub api_url: String,
@@ -108,11 +118,21 @@ impl Config {
                 ProviderConfig::Gemini(config) => {
                     Arc::new(GeminiClient::new(config))
                 }
+                ProviderConfig::Alicloud(config) => {
+                    // Alicloud uses OpenAI-compatible API, so we can reuse OpenaiClient
+                    Arc::new(OpenaiClient::new(&OpenaiConfig {
+                        id: config.id.clone(),
+                        api_key: config.api_key.clone(),
+                        api_url: config.api_url.clone(),
+                        proxy: config.proxy,
+                    }))
+                }
             };
             
             let provider_id = match provider {
                 ProviderConfig::Openai(c) => &c.id,
                 ProviderConfig::Gemini(c) => &c.id,
+                ProviderConfig::Alicloud(c) => &c.id,
             };
             
             clients.insert(provider_id.clone(), client);

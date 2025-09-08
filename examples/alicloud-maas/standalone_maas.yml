@@ -1,0 +1,24 @@
+nodes:
+  # MaaS Client - Standalone node for direct Python testing
+  - id: maas-client
+    build: cargo build -p dora-maas-client --release
+    path: ../../target/release/dora-maas-client
+    inputs:
+      text: test-client/text
+    outputs:
+      - text
+      - status
+      - log
+    env:
+      MAAS_CONFIG_PATH: alicloud_config.toml
+      LOG_LEVEL: INFO
+      RUST_LOG: info
+
+  # Dynamic test client placeholder
+  - id: test-client
+    path: dynamic
+    outputs:
+      - text
+    inputs:
+      text: maas-client/text
+      status: maas-client/status
