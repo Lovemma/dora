@@ -86,8 +86,15 @@ The server is now waiting for WebSocket connections on port 8123.
 ### Step 3: Connect with Moly Client
 
 1. Open the Moly client application
-2. Configure it to connect to: `ws://localhost:8123` (or `ws://0.0.0.0:8123`)
+2. Configure the "Dora Realtime" provider:
+   - WebSocket URL: `ws://localhost:8123` (or `ws://0.0.0.0:8123`)
+   - API Key: Enter any text (e.g., "fake-key") - this is just a placeholder
+   - **System Prompt**: Customize the system prompt in the provider settings
+     - **For Chinese users**: Use a Chinese system prompt (e.g., "你是一个友好的助手，请用中文回答所有问题。") as the current Chinese TTS has issues generating English speech
+     - **For English users**: Use the default English system prompt
 3. Start a conversation
+
+**Important Note for Chinese Users**: The current Chinese TTS voices have limitations generating English speech. Please ensure your system prompt in Moly is set to respond in Chinese only to avoid TTS errors.
 
 When Moly connects:
 - It sends a `session.update` message with configuration

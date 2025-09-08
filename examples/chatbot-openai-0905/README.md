@@ -117,8 +117,13 @@ cargo run --release
    - Configure the "Dora Realtime" provider
    - WebSocket URL: `localhost:8123`
    - API Key: Enter any text (e.g., "fake-key") - this is just a placeholder
+   - **System Prompt**: Customize the system prompt in the provider settings
+     - **For Chinese users**: Use a Chinese system prompt (e.g., "你是一个友好的助手，请用中文回答所有问题。") as the current Chinese TTS has issues generating English speech
+     - **For English users**: Use the default English system prompt
 
 3. Create a new chat session and click the talk icon to start voice conversation
+
+**Important Note for Chinese Users**: The current Chinese TTS voices have limitations generating English speech. Please ensure your system prompt in Moly is set to respond in Chinese only to avoid TTS errors.
 
 ## Data Flow
 
