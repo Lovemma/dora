@@ -43,7 +43,22 @@ The system uses `whisper-template-metal.yml` as a template. When a client connec
 
 ### MaaS Configuration
 
-The MaaS client is configured via `maas_mcp_browser_config.toml`. Make sure your API keys and endpoints are properly set.
+1. Copy the example configuration file:
+```bash
+cp maas_mcp_browser_config.toml.example maas_mcp_browser_config.toml
+```
+
+2. Edit `maas_mcp_browser_config.toml` and set your OpenAI API key:
+   - Either set the `OPENAI_API_KEY` environment variable
+   - Or replace `env:OPENAI_API_KEY` with your actual API key
+
+3. The configuration path can be customized using the `MAAS_CONFIG_PATH` environment variable:
+```bash
+# Use a custom config file location
+export MAAS_CONFIG_PATH="/path/to/your/config.toml"
+cargo run -p dora-openai-websocket
+```
+If not set, it defaults to `maas_mcp_browser_config.toml` in the current directory.
 
 ## Running the System
 

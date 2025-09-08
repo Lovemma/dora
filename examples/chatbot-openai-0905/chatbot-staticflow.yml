@@ -100,7 +100,7 @@ nodes:
       - status
       - log
     env:
-      CONFIG: maas_mcp_browser_config.toml  # Browser automation config
+      MAAS_CONFIG_PATH: maas_mcp_browser_config.toml  # Browser automation config
       LOG_LEVEL: INFO
 
   # Text Segmenter - buffers LLM output and sends to TTS one segment at a time

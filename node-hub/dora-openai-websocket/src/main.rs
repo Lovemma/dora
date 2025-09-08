@@ -386,7 +386,9 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         
         // Spawn new maas-client with potentially updated config
         println!("Spawning new maas-client for this session...");
-        let config_path = "/Users/yuechen/home/fresh/dora/examples/chatbot-openai-0905/maas_mcp_browser_config.toml";
+        // Use relative path or get from environment variable
+        let config_path = std::env::var("MAAS_CONFIG_PATH")
+            .unwrap_or_else(|_| "maas_mcp_browser_config.toml".to_string());
         
         match tokio::process::Command::new("cargo")
             .arg("run")
@@ -395,7 +397,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             .arg("--")
             .arg("--name")
             .arg("maas-client")
-            .env("CONFIG", config_path)
+            .env("MAAS_CONFIG_PATH", &config_path)
             .spawn() {
             Ok(mut child) => {
                 if let Some(pid) = child.id() {

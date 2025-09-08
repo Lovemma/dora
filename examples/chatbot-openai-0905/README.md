@@ -1,4 +1,4 @@
-# OpenAI WebSocket Browser Example
+# Chatbot OpenAI WebSocket Example
 
 This example demonstrates a voice chat system using WebSocket for browser/client communication, with cloud-based AI models (MaaS) instead of local models.
 
@@ -9,76 +9,116 @@ The system uses a WebSocket server (`dora-openai-websocket`) that:
 2. Dynamically spawns a Dora dataflow based on the template
 3. Routes audio and text between the client and the dataflow
 
-## Prerequisites
+## System Requirements
 
-1. Ensure you have built the WebSocket server:
+- Ubuntu 24.04 or similar Linux distribution (macOS also supported)
+- Python 3.12
+- Conda (Anaconda or Miniconda)
+- Rust toolchain (rustc, cargo)
+- Git with LFS support
+- CUDA toolkit (optional, for GPU acceleration)
+- Sufficient disk space (~50GB for models)
+
+## Quick Start
+
+### Step 1: Setup Environment
+
+Navigate to the setup directory and run the isolated environment setup:
+
 ```bash
-cd ../../node-hub/dora-openai-websocket
-cargo build --release -p dora-openai-websocket
+cd ../setup-new-chatbot
+./setup_isolated_env.sh
 ```
 
-2. Make sure all required Dora nodes are installed:
-```bash
-# Install Python nodes
-pip install -e ../../node-hub/dora-asr
-pip install -e ../../node-hub/dora-speechmonitor  
-pip install -e ../../node-hub/dora-text-segmenter
-pip install -e ../../node-hub/dora-primespeech
+This script will:
+- Install all system dependencies
+- Create a conda environment named `dora_voice_chat` with Python 3.12
+- Install all required Python packages with correct versions
 
-# Build Rust nodes
-cargo build --release -p dora-maas-client
+**Important**: Activate the conda environment for ALL terminals you'll use:
+
+```bash
+conda activate dora_voice_chat
 ```
 
-3. Ensure models are in place:
-- ASR models: `/Users/yuechen/.dora/models/asr`
-- PrimeSpeech models: `/Users/yuechen/.dora/models/primespeech`
+### Step 2: Install All Packages
 
-## Configuration
+Run the all-in-one installation script:
 
-The system uses `whisper-template-metal.yml` as a template. When a client connects, the WebSocket server:
-1. Receives a session configuration from the client
-2. Replaces `NODE_ID` in the template with a unique server ID (e.g., `server-12345`)
-3. Creates a new dataflow YAML file (e.g., `whisper-12345.yml`)
-4. Starts the dataflow automatically
-
-### MaaS Configuration
-
-The MaaS client is configured via `maas_mcp_browser_config.toml`. Make sure your API keys and endpoints are properly set.
-
-## Running the System
-
-### Step 1: Start the Mock Weather Server (Optional)
-
-If you want to test browser automation features:
 ```bash
-python mock_weather_server.py
+# From setup-new-chatbot directory
+./install_all_packages.sh
 ```
 
-### Step 2: Start the WebSocket Server
+This will automatically:
+- Install all Dora Python packages in editable mode
+- Install Rust (if not already installed)
+- Install Dora CLI
+- Build all Rust-based nodes (dora-maas-client, dora-openai-websocket)
 
-From this directory:
+### Step 3: Download All Models
+
+Use the automated download script:
+
 ```bash
+cd ../model-manager
+./download_all_models.sh
+```
+
+This will:
+- Download FunASR models for speech recognition
+- Download complete PrimeSpeech package (base models + G2PW + all voices)
+- Verify all downloads
+- Optionally convert models to ONNX format for better performance
+
+### Step 4: Configure MaaS
+
+1. Copy the example configuration file:
+```bash
+cd ../chatbot-openai-0905
+cp maas_mcp_browser_config.toml.example maas_mcp_browser_config.toml
+```
+
+2. Edit `maas_mcp_browser_config.toml` and set your OpenAI API key:
+   - Either set the `OPENAI_API_KEY` environment variable
+   - Or replace `env:OPENAI_API_KEY` with your actual API key
+
+3. The configuration path can be customized using the `MAAS_CONFIG_PATH` environment variable:
+```bash
+# Use a custom config file location
+export MAAS_CONFIG_PATH="/path/to/your/config.toml"
+cargo run -p dora-openai-websocket
+```
+If not set, it defaults to `maas_mcp_browser_config.toml` in the current directory.
+
+### Step 5: Build and Run
+
+```bash
+# Build all nodes defined in the template
+dora build chatbot-staticflow.yml
+
+# Start the WebSocket server
 cargo run -p dora-openai-websocket
 ```
 
-You should see output like:
+You should see:
 ```
 Server started, listening on 0.0.0.0:8123
 ```
 
-The server is now waiting for WebSocket connections on port 8123.
+### Step 6: Connect with Moly Client
 
-### Step 3: Connect with Moly Client
+1. In a new terminal, navigate to your Moly repository and run:
+```bash
+cargo run --release
+```
 
-1. Open the Moly client application
-2. Configure it to connect to: `ws://localhost:8123` (or `ws://0.0.0.0:8123`)
-3. Start a conversation
+2. In the Moly client interface:
+   - Configure the "Dora Realtime" provider
+   - WebSocket URL: `localhost:8123`
+   - API Key: Enter any text (e.g., "fake-key") - this is just a placeholder
 
-When Moly connects:
-- It sends a `session.update` message with configuration
-- The server creates a new dataflow instance
-- Moly can send an initial greeting via `response.create` 
-- The greeting is routed to the MaaS client which generates a response
+3. Create a new chat session and click the talk icon to start voice conversation
 
 ## Data Flow
 
@@ -93,37 +133,111 @@ When Moly connects:
 3. **Dataflow → Server → Client**:
    - MaaS response → Text Segmenter → PrimeSpeech TTS → Audio output
 
+## Configuration Options
+
+### ASR Configuration
+
+| Variable | Values | Description | Default |
+|----------|--------|-------------|---------|
+| `USE_GPU` | `"true"/"false"` | Enable GPU acceleration | `"false"` |
+| `ASR_ENGINE` | `"funasr"/"whisper"/"auto"` | Select ASR engine | `"auto"` |
+| `LANGUAGE` | `"zh"/"en"/"auto"` | Target language | `"auto"` |
+| `ENABLE_PUNCTUATION` | `"true"/"false"` | Add punctuation | `"true"` |
+
+### PrimeSpeech TTS Configuration
+
+```bash
+export PRIMESPEECH_MODEL_DIR=$HOME/.dora/models/primespeech
+export VOICE_NAME=Doubao        # Available: Doubao, Luo Xiang, Yang Mi, etc.
+export TEXT_LANG=zh             # zh for Chinese, en for English
+export USE_GPU=false            # Set to true for GPU acceleration
+export SPEED_FACTOR=1.0         # 0.8-1.2 range for speed adjustment
+```
+
+## Performance Benchmarks
+
+### ASR Performance (with RTX 4090)
+- **CPU Processing**: 0.640s (27.1x real-time)
+- **GPU Processing**: 0.282s (61.6x real-time)
+- **GPU Speedup**: 2.27x faster
+- **Memory Usage**: ~2GB VRAM
+
+## Advanced Features
+
+### Browser Automation (Optional)
+
+Install the Playwright MCP server for browser control via voice:
+
+```bash
+npm install -g @playwright/mcp
+```
+
+This enables commands like:
+- "Open Google and search for..."
+- "Take a screenshot of the page"
+- "Click on the first link"
+
+### Multiple Language Support
+
+The system supports both Chinese and English with automatic language detection.
+
 ## Troubleshooting
 
-### "Connection reset without closing" error
-- Check that the WebSocket server is running
-- Verify the template file exists: `whisper-template-metal.yml`
-- Check server logs for any parsing errors
+### ASR Issues
+```bash
+# Check if models are properly downloaded
+ls -lh ~/.dora/models/asr/funasr/
+# Files should be >100MB, not small pointer files
 
-### No audio output
-- Verify PrimeSpeech models are installed
-- Check ASR is receiving audio (view logs)
-- Ensure audio sample rates are correct (24kHz input, 24kHz output)
+# Test ASR directly
+cd ../setup-new-chatbot/asr-validation
+python test_basic_asr.py
+```
 
-### MaaS not responding
-- Check `maas_mcp_browser_config.toml` has valid API keys
-- Verify network connectivity to cloud providers
-- Check MaaS client logs for errors
+### TTS Issues
+```bash
+# Check PrimeSpeech models
+ls -lh ~/.dora/models/primespeech/
+
+# Test TTS directly
+cd ../setup-new-chatbot/primespeech-validation
+python test_tts_direct.py
+```
+
+### WebSocket Connection Issues
+- Ensure the server is running on port 8123
+- Check firewall settings
+- Try restarting both the WebSocket server and Moly client
+- Check the WebSocket server logs for error messages
+
+### Node Connection Issues
+- Make sure `dora up` is running (coordinator and daemon)
+- Check that all nodes built successfully
+- Review logs: `dora logs <dataflow-id> <node-name>`
 
 ## File Structure
 
 ```
-openai-websocket-browser/
+chatbot-openai-0905/
 ├── README.md                           # This file
-├── whisper-template-metal.yml          # Dataflow template
-├── maas_mcp_browser_config.toml       # MaaS configuration
+├── chatbot-staticflow.yml             # Main dataflow configuration
+├── maas_mcp_browser_config.toml.example  # Example MaaS configuration
 ├── mock_weather_server.py             # Mock server for testing
-└── whisper-*.yml                       # Generated dataflow files (created at runtime)
+└── whisper-*.yml                       # Generated dataflow files (runtime)
 ```
 
-## Notes
+## Performance Tips
 
-- Each client connection creates a separate dataflow instance
-- The `NODE_ID` placeholder in the template is replaced with a unique ID
-- Generated dataflow files (whisper-*.yml) can be deleted after use
-- The system supports multiple concurrent connections
+1. **GPU Acceleration**: Set `USE_GPU=true` in environment variables for faster ASR processing
+2. **Model Loading**: First run will be slower as models load. Subsequent runs will be faster
+3. **Network**: Ensure stable network connection for cloud-based OpenAI models
+4. **Memory**: Ensure at least 8GB RAM available for smooth operation
+
+## Next Steps
+
+- Customize the system prompt in the TOML config files
+- Try different TTS voices by modifying the PrimeSpeech settings
+- Experiment with different LLM models
+- Add custom MCP tools for extended functionality
+
+For more details, see individual component documentation in the node-hub directory.

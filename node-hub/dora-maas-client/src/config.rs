@@ -71,12 +71,12 @@ pub struct ModelRoute {
 }
 
 impl Config {
-    /// Load configuration from file specified by CONFIG environment variable.
+    /// Load configuration from file specified by MAAS_CONFIG_PATH environment variable.
     /// 
     /// Supports TOML, YAML, and JSON formats based on file extension.
-    /// Falls back to `maas_config.toml` if CONFIG is not set.
+    /// Falls back to `maas_config.toml` if MAAS_CONFIG_PATH is not set.
     pub fn load() -> eyre::Result<Self> {
-        let config_file = std::env::var("CONFIG").unwrap_or_else(|_| "maas_config.toml".to_string());
+        let config_file = std::env::var("MAAS_CONFIG_PATH").unwrap_or_else(|_| "maas_config.toml".to_string());
         let config_path = PathBuf::from(config_file);
         
         if !config_path.exists() {
