@@ -101,8 +101,11 @@ If not set, it defaults to `maas_mcp_browser_config.toml` in the current directo
 # Build all nodes defined in the template
 dora build chatbot-staticflow.yml
 
+# start the static dataflow
+dora start chatbot-staticflow.yml
+
 # Start the WebSocket server
-cargo run -p dora-openai-websocket
+cargo run -p dora-openai-websocket -- --name wserver
 ```
 
 You should see:

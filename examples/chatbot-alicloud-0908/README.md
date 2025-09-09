@@ -91,7 +91,7 @@ cp maas_mcp_browser_config.toml.example maas_mcp_browser_config.toml
 
 3. The configuration path can be customized using the `MAAS_CONFIG_PATH` environment variable:
 ```bash
-# Use a custom config file location, export MAAS_CONFIG_PAT="maas_mcp_browser_config.toml"
+# Use a custom config file location, export MAAS_CONFIG_PATH="maas_mcp_browser_config.toml"
 export MAAS_CONFIG_PATH="/path/to/your/config.toml" 
 
 
@@ -105,8 +105,11 @@ If not set, it defaults to `maas_mcp_browser_config.toml` in the current directo
 # Build all nodes defined in the template
 dora build chatbot-staticflow.yml
 
+# start the static dataflow
+dora start chatbot-staticflow.yml
+
 # Start the WebSocket server
-cargo run -p dora-openai-websocket
+cargo run -p dora-openai-websocket -- --name wserver
 ```
 
 You should see:

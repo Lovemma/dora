@@ -29,7 +29,7 @@ enable_tools = true
 #   - false: Pass-through mode - tools from client are forwarded to LLM, 
 #            and tool calls are sent back to client for execution (for Moly integration)
 # If not specified, defaults to false (pass-through mode)
-# enable_local_mcp = true  # Uncomment to enable local MCP hosting
+enable_local_mcp = true  # Uncomment to enable local MCP hosting
 
 # Alibaba Cloud Provider (Primary)
 [[providers]]
