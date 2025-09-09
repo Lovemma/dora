@@ -1,0 +1,36 @@
+# MaaS Client Configuration - MCP Pass-through Mode
+# This configuration disables local MCP hosting and allows MCP calls to pass through
+
+default_model = "gpt-4o"
+system_prompt = "You are a helpful assistant. Use the available tools when needed to help answer questions."
+max_history_exchanges = 10
+enable_streaming = true
+log_level = "DEBUG"
+
+# Enable tools but disable local MCP hosting
+enable_tools = true
+enable_local_mcp = false  # This is the key setting for pass-through mode
+
+# Provider configuration
+[[providers]]
+kind = "openai"
+id = "openai"
+api_key = "env:OPENAI_API_KEY"
+api_url = "https://api.openai.com/v1"
+
+# Model routing
+[[models]]
+id = "gpt-4o"
+[models.route]
+provider = "openai"
+model = "gpt-4o"
+
+[[models]]
+id = "gpt-4"
+[models.route]
+provider = "openai"
+model = "gpt-4"
+
+# Note: When enable_local_mcp = false, MCP configuration is ignored
+# The client will expect tool definitions to be passed via metadata
+# and tool calls will be sent back to the client for execution

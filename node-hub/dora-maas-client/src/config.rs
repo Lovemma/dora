@@ -26,6 +26,8 @@ pub struct Config {
     pub log_level: String,  // Used for configuring log verbosity
     #[serde(default)]
     pub enable_tools: bool,  // Enable MCP tool support
+    #[serde(default)]
+    pub enable_local_mcp: bool,  // Enable local MCP host (false = pass through to client)
     pub mcp: Option<McpConfig>,  // MCP server configurations
 }
 
@@ -248,7 +250,8 @@ impl McpServerTransportConfig {
 impl Config {
     /// Initialize the tool set with MCP tools
     pub async fn init_tool_set(&self) -> eyre::Result<Option<ToolSet>> {
-        if !self.enable_tools || self.mcp.is_none() {
+        // Only initialize local MCP if both enable_tools and enable_local_mcp are true
+        if !self.enable_tools || !self.enable_local_mcp || self.mcp.is_none() {
             return Ok(None);
         }
 

@@ -1,0 +1,46 @@
+# MaaS Client Configuration - Local MCP Mode
+# This configuration enables local MCP hosting (original behavior)
+
+default_model = "gpt-4o"
+system_prompt = "You are a helpful assistant. Use the available tools when needed to help answer questions."
+max_history_exchanges = 10
+enable_streaming = true
+log_level = "DEBUG"
+
+# Enable tools and local MCP hosting
+enable_tools = true
+enable_local_mcp = true  # Local MCP hosting enabled (original behavior)
+
+# Provider configuration
+[[providers]]
+kind = "openai"
+id = "openai"
+api_key = "env:OPENAI_API_KEY"
+api_url = "https://api.openai.com/v1"
+
+# Model routing
+[[models]]
+id = "gpt-4o"
+[models.route]
+provider = "openai"
+model = "gpt-4o"
+
+[[models]]
+id = "gpt-4"
+[models.route]
+provider = "openai"
+model = "gpt-4"
+
+# MCP server configuration (used when enable_local_mcp = true)
+[mcp]
+[[mcp.servers]]
+name = "filesystem"
+protocol = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+[[mcp.servers]]
+name = "git"
+protocol = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-git"]

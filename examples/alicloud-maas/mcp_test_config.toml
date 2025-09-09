@@ -1,0 +1,43 @@
+# MCP Test Configuration for Alibaba Cloud
+# Tests qwen-max with MCP tool calling capabilities
+
+default_model = "qwen-max"
+system_prompt = """You are a helpful assistant with access to weather information.
+When users ask about weather, use the get_weather tool to provide accurate information.
+Always use the tool when asked about weather conditions."""
+
+max_history_exchanges = 10
+enable_streaming = false  # Disable for easier testing
+log_level = "DEBUG"
+
+# Enable MCP tools
+enable_tools = true
+
+# MCP Hosting Mode (only relevant when enable_tools = true)
+# enable_local_mcp: Controls where tools are executed
+#   - true: Dora WebSocket server hosts MCP servers and executes tools locally
+#   - false: Pass-through mode - tools from client are forwarded to LLM, 
+#            and tool calls are sent back to client for execution (for Moly integration)
+# If not specified, defaults to false (pass-through mode)
+enable_local_mcp = true
+
+
+# Alibaba Cloud Provider
+[[providers]]
+id = "alicloud"
+kind = "alicloud"
+api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "env:ALIBABA_CLOUD_API_KEY"
+proxy = false
+
+# Qwen-max model configuration
+[[models]]
+id = "qwen-max"
+route = { provider = "alicloud", model = "qwen-max" }
+
+# Mock Weather MCP Server
+[[mcp.servers]]
+name = "mock-weather"
+protocol = "stdio"
+command = "python3"
+args = ["mock_weather_mcp.py"]

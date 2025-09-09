@@ -319,10 +319,24 @@ async fn main() -> Result<()> {
                         );
                         
                         // Add tool definitions if available
-                        if session.has_tools() {
-                            request.tools = session.get_tool_definitions();
-                            send_log(&mut node, "DEBUG", &format!("Added {} tool definitions", 
-                                request.tools.as_ref().map(|t| t.len()).unwrap_or(0)))?;
+                        if config.enable_tools {
+                            if config.enable_local_mcp && session.has_tools() {
+                                // Use local MCP tools
+                                request.tools = session.get_tool_definitions();
+                                send_log(&mut node, "DEBUG", &format!("Added {} local MCP tool definitions", 
+                                    request.tools.as_ref().map(|t| t.len()).unwrap_or(0)))?;
+                            } else if !config.enable_local_mcp {
+                                // Pass through tools from client metadata
+                                if let Some(tools_param) = metadata.parameters.get("tools") {
+                                    // Parse tools from metadata (expecting JSON array)
+                                    if let Parameter::String(tools_json) = tools_param {
+                                        if let Ok(tools) = serde_json::from_str::<Vec<ChatCompletionTool>>(tools_json) {
+                                            request.tools = Some(tools.clone());
+                                            send_log(&mut node, "DEBUG", &format!("Added {} client-provided tool definitions", tools.len()))?;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         request.stream = config.enable_streaming;
                         request.temperature = Some(0.7);
@@ -411,77 +425,96 @@ async fn main() -> Result<()> {
                                     ).context("Failed to send status output")?;
                                     
                                     // FIX: Handle tool calls from streaming response
-                                    // When the LLM returns tool calls, we execute them and loop back
-                                    // to send the results, getting the final natural language response
+                                    // When the LLM returns tool calls, we either execute them locally (enable_local_mcp=true)
+                                    // or pass them back to the client (enable_local_mcp=false)
                                     if let Some(tool_calls) = tool_calls {
-                                        send_log(&mut node, "INFO", &format!("Executing {} tool calls", tool_calls.len()))?;
+                                        send_log(&mut node, "INFO", &format!("Received {} tool calls", tool_calls.len()))?;
                                         
                                         // Add assistant message with tool calls first
                                         session.add_assistant_message_with_tools(final_text.clone(), tool_calls.clone());
                                         
-                                        // Execute tool calls and collect results
-                                        let mut tool_results = Vec::new();
-                                        if let Some(ref tool_set) = session.tool_set {
-                                            for tool_call in &tool_calls {
-                                                send_log(&mut node, "DEBUG", 
-                                                    &format!("Calling tool: {} with args: {}", 
-                                                        tool_call.function.name, tool_call.function.arguments))?;
-                                                
-                                                // Get the tool from the tool set
-                                                let tool = {
-                                                    let tool_set_guard = tool_set.lock().unwrap();
-                                                    tool_set_guard.get_tool(&tool_call.function.name)
-                                                };
-                                                
-                                                let result = if let Some(tool) = tool {
-                                                    // Parse arguments
-                                                    let args: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
-                                                        .unwrap_or(serde_json::Value::Null);
+                                        if config.enable_local_mcp {
+                                            // Execute tool calls locally
+                                            send_log(&mut node, "INFO", "Executing tool calls locally")?;
+                                            
+                                            // Execute tool calls and collect results
+                                            let mut tool_results = Vec::new();
+                                            if let Some(ref tool_set) = session.tool_set {
+                                                for tool_call in &tool_calls {
+                                                    send_log(&mut node, "DEBUG", 
+                                                        &format!("Calling tool: {} with args: {}", 
+                                                            tool_call.function.name, tool_call.function.arguments))?;
                                                     
-                                                    // Execute the tool
-                                                    match tool.call(args).await {
-                                                        Ok(result) => {
-                                                            let content = if let Some(contents) = result.content {
-                                                                contents.iter()
-                                                                    .filter_map(|c| c.as_text())
-                                                                    .map(|t| t.text.clone())
-                                                                    .collect::<Vec<_>>()
-                                                                    .join("\n")
-                                                            } else {
-                                                                "Tool executed successfully".to_string()
-                                                            };
-                                                            send_log(&mut node, "DEBUG", 
-                                                                &format!("Tool result: {}", content))?;
-                                                            content
+                                                    // Get the tool from the tool set
+                                                    let tool = {
+                                                        let tool_set_guard = tool_set.lock().unwrap();
+                                                        tool_set_guard.get_tool(&tool_call.function.name)
+                                                    };
+                                                    
+                                                    let result = if let Some(tool) = tool {
+                                                        // Parse arguments
+                                                        let args: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+                                                            .unwrap_or(serde_json::Value::Null);
+                                                        
+                                                        // Execute the tool
+                                                        match tool.call(args).await {
+                                                            Ok(result) => {
+                                                                let content = if let Some(contents) = result.content {
+                                                                    contents.iter()
+                                                                        .filter_map(|c| c.as_text())
+                                                                        .map(|t| t.text.clone())
+                                                                        .collect::<Vec<_>>()
+                                                                        .join("\n")
+                                                                } else {
+                                                                    "Tool executed successfully".to_string()
+                                                                };
+                                                                send_log(&mut node, "DEBUG", 
+                                                                    &format!("Tool result: {}", content))?;
+                                                                content
+                                                            }
+                                                            Err(e) => {
+                                                                send_log(&mut node, "ERROR", 
+                                                                    &format!("Tool execution failed: {}", e))?;
+                                                                format!("Error: {}", e)
+                                                            }
                                                         }
-                                                        Err(e) => {
-                                                            send_log(&mut node, "ERROR", 
-                                                                &format!("Tool execution failed: {}", e))?;
-                                                            format!("Error: {}", e)
-                                                        }
-                                                    }
-                                                } else {
-                                                    let msg = format!("Tool '{}' not found", tool_call.function.name);
-                                                    send_log(&mut node, "ERROR", &msg)?;
-                                                    msg
-                                                };
-                                                
-                                                // Collect the result to add later
-                                                tool_results.push((tool_call.id.clone(), result));
+                                                    } else {
+                                                        let msg = format!("Tool '{}' not found", tool_call.function.name);
+                                                        send_log(&mut node, "ERROR", &msg)?;
+                                                        msg
+                                                    };
+                                                    
+                                                    // Collect the result to add later
+                                                    tool_results.push((tool_call.id.clone(), result));
+                                                }
                                             }
+                                            
+                                            // Add all tool results to session
+                                            for (tool_call_id, result) in tool_results {
+                                                session.add_tool_message(tool_call_id, result);
+                                            }
+                                            
+                                            // After tool execution, immediately make another request to get the final response
+                                            // Don't wait for user input - we need to send the tool results back to the LLM
+                                            send_log(&mut node, "DEBUG", "Sending tool results back to LLM for final response")?;
+                                            
+                                            // Set flag to continue the conversation with tool results
+                                            continue_conversation = true;
+                                        } else {
+                                            // Pass tool calls back to client
+                                            send_log(&mut node, "INFO", "Passing tool calls to client")?;
+                                            
+                                            // Serialize tool calls and send to client
+                                            let tool_calls_json = serde_json::to_string(&tool_calls)?;
+                                            node.send_output(
+                                                DataId::from("tool_calls".to_string()),
+                                                Default::default(),
+                                                StringArray::from(vec![tool_calls_json.as_str()]),
+                                            ).context("Failed to send tool calls")?;
+                                            
+                                            // Don't continue conversation - wait for tool results from client
+                                            continue_conversation = false;
                                         }
-                                        
-                                        // Add all tool results to session
-                                        for (tool_call_id, result) in tool_results {
-                                            session.add_tool_message(tool_call_id, result);
-                                        }
-                                        
-                                        // After tool execution, immediately make another request to get the final response
-                                        // Don't wait for user input - we need to send the tool results back to the LLM
-                                        send_log(&mut node, "DEBUG", "Sending tool results back to LLM for final response")?;
-                                        
-                                        // Set flag to continue the conversation with tool results
-                                        continue_conversation = true;
                                     } else {
                                         // No tool calls, just add the text message
                                         session.add_assistant_message(final_text.clone());
@@ -567,6 +600,105 @@ async fn main() -> Result<()> {
                         }
                         }  // Close the else block for non-streaming
                         }  // Close the while continue_conversation loop
+                    }
+                    "tool_results" => {
+                        // Handle tool results from client (when enable_local_mcp=false)
+                        let results_array = data.as_string::<i32>();
+                        if let Some(results_json) = results_array.iter().next().flatten() {
+                            send_log(&mut node, "INFO", "Received tool results from client")?;
+                            
+                            // Parse tool results
+                            if let Ok(tool_results) = serde_json::from_str::<Vec<(String, String)>>(results_json) {
+                                // Get session
+                                if let Some(session) = sessions.get_mut(&session_id) {
+                                    // Add tool results to session
+                                    for (tool_call_id, result) in tool_results {
+                                        session.add_tool_message(tool_call_id.clone(), result);
+                                    }
+                                    
+                                    send_log(&mut node, "DEBUG", "Added tool results to session, making API call for final response")?;
+                                    
+                                    // Route to appropriate provider
+                                    let (provider_id, model_name) = config.route_model(&config.default_model)
+                                        .ok_or_else(|| eyre::eyre!("No route found for model: {}", config.default_model))?;
+                                    
+                                    // Create chat completion request with tool results
+                                    let mut request = CreateChatCompletionRequest::new(
+                                        model_name.clone(),
+                                        session.messages.clone(),
+                                    );
+                                    
+                                    // Tool definitions should still be included for context
+                                    if config.enable_tools && !config.enable_local_mcp {
+                                        if let Some(tools_param) = metadata.parameters.get("tools") {
+                                            if let Parameter::String(tools_json) = tools_param {
+                                                if let Ok(tools) = serde_json::from_str::<Vec<ChatCompletionTool>>(tools_json) {
+                                                    request.tools = Some(tools);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    request.stream = config.enable_streaming;
+                                    request.temperature = Some(0.7);
+                                    
+                                    let client = clients.get(&provider_id)
+                                        .ok_or_else(|| eyre::eyre!("No client found for provider: {}", provider_id))?;
+                                    
+                                    // Send "processing" status
+                                    node.send_output(
+                                        DataId::from("status".to_string()),
+                                        Default::default(),
+                                        StringArray::from(vec!["processing"]),
+                                    ).context("Failed to send status output")?;
+                                    
+                                    // Make API call to get final response after tool execution
+                                    match client.complete(request).await {
+                                        Ok(response) => {
+                                            if let Some(choice) = response.choices.first() {
+                                                let content = match &choice.message {
+                                                    outfox_openai::spec::ChatCompletionResponseMessage { content, .. } => {
+                                                        content.clone().unwrap_or_default()
+                                                    }
+                                                };
+                                                
+                                                send_log(&mut node, "INFO", &format!("Generated response after tool execution ({} chars)", content.len()))?;
+                                                
+                                                // Add assistant message to session
+                                                session.add_assistant_message(content.clone());
+                                                
+                                                // Send response
+                                                node.send_output(
+                                                    DataId::from("text".to_string()),
+                                                    Default::default(),
+                                                    StringArray::from(vec![content.as_str()]),
+                                                ).context("Failed to send text output")?;
+                                                
+                                                // Send "complete" status
+                                                node.send_output(
+                                                    DataId::from("status".to_string()),
+                                                    Default::default(),
+                                                    StringArray::from(vec!["complete"]),
+                                                ).context("Failed to send status output")?;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let error_msg = format!("Error processing tool results: {}", e);
+                                            send_log(&mut node, "ERROR", &error_msg)?;
+                                            
+                                            // Send "error" status
+                                            node.send_output(
+                                                DataId::from("status".to_string()),
+                                                Default::default(),
+                                                StringArray::from(vec![format!("error: {}", e)]),
+                                            ).context("Failed to send status output")?;
+                                        }
+                                    }
+                                }
+                            } else {
+                                send_log(&mut node, "ERROR", "Failed to parse tool results")?;
+                            }
+                        }
                     }
                     "control" => {
                         // Handle control commands

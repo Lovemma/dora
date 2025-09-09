@@ -91,8 +91,10 @@ cp maas_mcp_browser_config.toml.example maas_mcp_browser_config.toml
 
 3. The configuration path can be customized using the `MAAS_CONFIG_PATH` environment variable:
 ```bash
-# Use a custom config file location
-export MAAS_CONFIG_PATH="/path/to/your/config.toml"
+# Use a custom config file location, export MAAS_CONFIG_PAT="maas_mcp_browser_config.toml"
+export MAAS_CONFIG_PATH="/path/to/your/config.toml" 
+
+
 cargo run -p dora-openai-websocket
 ```
 If not set, it defaults to `maas_mcp_browser_config.toml` in the current directory.

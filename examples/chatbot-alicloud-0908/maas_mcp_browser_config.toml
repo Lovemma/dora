@@ -17,8 +17,19 @@ max_history_exchanges = 30
 enable_streaming = true
 log_level = "INFO"
 
-# Enable MCP tools
+# Tool Configuration
+# enable_tools: Master switch for tool/function calling functionality
+#   - true: Enable tool support (tools can be local or pass-through)
+#   - false: Disable all tool functionality
 enable_tools = true
+
+# MCP Hosting Mode (only relevant when enable_tools = true)
+# enable_local_mcp: Controls where tools are executed
+#   - true: Dora WebSocket server hosts MCP servers and executes tools locally
+#   - false: Pass-through mode - tools from client are forwarded to LLM, 
+#            and tool calls are sent back to client for execution (for Moly integration)
+# If not specified, defaults to false (pass-through mode)
+# enable_local_mcp = true  # Uncomment to enable local MCP hosting
 
 # Alibaba Cloud Provider (Primary)
 [[providers]]

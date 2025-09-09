@@ -58,6 +58,7 @@ Set your API key as an environment variable:
 
 ```bash
 export ALIBABA_CLOUD_API_KEY="sk-your-api-key-here"
+export MAAS_CONFIG_PAT="maas_mcp_browser_config.toml"
 ```
 
 **Method 2: Configuration File**

@@ -1,0 +1,29 @@
+nodes:
+  # MaaS Client with MCP support
+  - id: maas-client
+    build: cargo build -p dora-maas-client --release
+    path: ../../target/release/dora-maas-client
+    inputs:
+      text: mcp-test-client/text
+    outputs:
+      - text
+      - status
+      - log
+    env:
+      MAAS_CONFIG_PATH: mcp_test_config.toml
+      LOG_LEVEL: DEBUG
+      RUST_LOG: debug
+      ALIBABA_CLOUD_API_KEY: "${ALIBABA_CLOUD_API_KEY}"
+
+  # Test client that sends queries
+  - id: mcp-test-client
+    path: test_mcp_weather.py
+    outputs:
+      - text
+    inputs:
+      text: maas-client/text
+      status: maas-client/status
+      log: maas-client/log
+    env:
+      PYTHONUNBUFFERED: "1"
+      ALIBABA_CLOUD_API_KEY: "${ALIBABA_CLOUD_API_KEY}"

@@ -41,7 +41,7 @@ This script will:
 conda activate dora_voice_chat
 ```
 
-### Step 2: Install All Packages
+### Step 2: Install All Packages and Convert the ONXX Models
 
 Run the all-in-one installation script:
 
@@ -69,8 +69,11 @@ This will:
 - Download FunASR models for speech recognition
 - Download complete PrimeSpeech package (base models + G2PW + all voices)
 - Verify all downloads
-- Optionally convert models to ONNX format for better performance
-
+- Convert models to ONNX format for better performance
+```bash
+cd ../model-manager
+./python convert_to_onnx.py --convert all
+```
 ### Step 4: Configure MaaS
 
 1. Copy the example configuration file:
@@ -85,8 +88,9 @@ cp maas_mcp_browser_config.toml.example maas_mcp_browser_config.toml
 
 3. The configuration path can be customized using the `MAAS_CONFIG_PATH` environment variable:
 ```bash
-# Use a custom config file location
-export MAAS_CONFIG_PATH="/path/to/your/config.toml"
+# Use a custom config file location, export MAAS_CONFIG_PAT="maas_mcp_browser_config.toml"
+export MAAS_CONFIG_PATH="/path/to/your/config.toml" 
+
 cargo run -p dora-openai-websocket
 ```
 If not set, it defaults to `maas_mcp_browser_config.toml` in the current directory.
@@ -108,22 +112,22 @@ Server started, listening on 0.0.0.0:8123
 
 ### Step 6: Connect with Moly Client
 
-1. In a new terminal, navigate to your Moly repository and run:
-```bash
-cargo run --release
-```
-
-2. In the Moly client interface:
-   - Configure the "Dora Realtime" provider
-   - WebSocket URL: `localhost:8123`
+1. Open the Moly client application
+2. Configure the "Dora Realtime" provider:
+   - WebSocket URL: `ws://localhost:8123` (or `ws://0.0.0.0:8123`)
    - API Key: Enter any text (e.g., "fake-key") - this is just a placeholder
    - **System Prompt**: Customize the system prompt in the provider settings
      - **For Chinese users**: Use a Chinese system prompt (e.g., "你是一个友好的助手，请用中文回答所有问题。") as the current Chinese TTS has issues generating English speech
      - **For English users**: Use the default English system prompt
-
-3. Create a new chat session and click the talk icon to start voice conversation
+3. Start a conversation
 
 **Important Note for Chinese Users**: The current Chinese TTS voices have limitations generating English speech. Please ensure your system prompt in Moly is set to respond in Chinese only to avoid TTS errors.
+
+When Moly connects:
+- It sends a `session.update` message with configuration
+- The server creates a new dataflow instance
+- Moly can send an initial greeting via `response.create` 
+- The greeting is routed to the MaaS client which generates a response
 
 ## Data Flow
 
@@ -159,15 +163,8 @@ export USE_GPU=false            # Set to true for GPU acceleration
 export SPEED_FACTOR=1.0         # 0.8-1.2 range for speed adjustment
 ```
 
-## Performance Benchmarks
 
-### ASR Performance (with RTX 4090)
-- **CPU Processing**: 0.640s (27.1x real-time)
-- **GPU Processing**: 0.282s (61.6x real-time)
-- **GPU Speedup**: 2.27x faster
-- **Memory Usage**: ~2GB VRAM
-
-## Advanced Features
+## MCP Features
 
 ### Browser Automation (Optional)
 
