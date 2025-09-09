@@ -7,7 +7,7 @@ When users ask about weather, use the get_weather tool to provide accurate infor
 Always use the tool when asked about weather conditions."""
 
 max_history_exchanges = 10
-enable_streaming = false  # Disable for easier testing
+enable_streaming = true  # Enable streaming to support tool calls
 log_level = "DEBUG"
 
 # Enable MCP tools
@@ -27,13 +27,36 @@ enable_local_mcp = true
 id = "alicloud"
 kind = "alicloud"
 api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "env:ALIBABA_CLOUD_API_KEY"
+api_key = "sk-269457821d0743c9bcc700d67f8564eb"
 proxy = false
 
 # Qwen-max model configuration
 [[models]]
 id = "qwen-max"
 route = { provider = "alicloud", model = "qwen-max" }
+
+
+# Playwright MCP Server for browser automation
+[[mcp.servers]]
+name = "playwright"
+protocol = "stdio"  
+command = "npx"
+args = [
+    "-y",
+    "@playwright/mcp@latest"
+]
+
+
+# Filesystem for saving screenshots and data
+[[mcp.servers]]
+name = "filesystem"
+protocol = "stdio"
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/tmp/browser-data"
+]
 
 # Mock Weather MCP Server
 [[mcp.servers]]

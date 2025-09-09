@@ -1,0 +1,10 @@
+nodes:
+  # MaaS Client with MCP support (static)
+  - id: maas-client
+    build: cargo build -p dora-maas-client --release
+    path: ../../target/release/dora-maas-client
+    env:
+      MAAS_CONFIG_PATH: /Users/yuechen/home/fresh/dora/examples/alicloud-maas/mcp_test_config.toml
+      LOG_LEVEL: DEBUG
+      RUST_LOG: debug
+      ALIBABA_CLOUD_API_KEY: "env:ALIBABA_CLOUD_API_KEY"

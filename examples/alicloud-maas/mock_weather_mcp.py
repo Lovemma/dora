@@ -181,6 +181,10 @@ def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
         return handle_tools_list(request_id)
     elif method == "tools/call":
         return handle_tools_call(request_id, params)
+    elif method == "notifications/initialized":
+        # This is a notification, not a request - just log it
+        logging.info("Received initialized notification")
+        return None  # Don't send a response for notifications
     else:
         logging.error(f"Unknown method: {method}")
         return {
@@ -220,11 +224,12 @@ def main():
             # Handle request
             response = handle_request(request)
             
-            # Send response
-            response_json = json.dumps(response, ensure_ascii=False)
-            print(response_json)
-            sys.stdout.flush()
-            logging.debug(f"Sent response: {response_json}")
+            # Only send response if it's not None (notifications don't get responses)
+            if response is not None:
+                response_json = json.dumps(response, ensure_ascii=False)
+                print(response_json)
+                sys.stdout.flush()
+                logging.debug(f"Sent response: {response_json}")
             
         except KeyboardInterrupt:
             logging.info("Interrupted, shutting down")
