@@ -65,7 +65,6 @@ def main():
     """Main entry point for speech monitor node"""
     
     # Initialize components
-    node = Node()
     config = SpeechMonitorConfig()
     state_machine = SpeechStateMachine()
     
@@ -96,7 +95,8 @@ def main():
     
     # Pause/Resume control
     is_paused = False
-    
+    node = Node()
+
     for event in node:
         # Handle control signals for pause/resume
         if event["type"] == "INPUT" and event["id"] == "control":
