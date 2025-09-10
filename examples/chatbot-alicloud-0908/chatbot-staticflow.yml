@@ -3,7 +3,9 @@ nodes:
     build: cargo build --release -p dora-openai-websocket
     path: dynamic
     inputs:
-      audio: primespeech/audio
+      audio: 
+        source: primespeech/audio
+        queue_size: 1000
       text: asr/transcription
       speech_started: speech-monitor/speech_started
       speech_ended: speech-monitor/speech_ended
@@ -37,8 +39,8 @@ nodes:
     path: dora-speechmonitor
     inputs:
       audio:
-        source: wserver/audio
-        queue_size: 1000000
+          source: wserver/audio
+          queue_size: 1000000
       # control: chat-controller/speech_control  # Commented out - no chat-controller in this config
     outputs:
       - speech_started
@@ -93,8 +95,12 @@ nodes:
     build: cargo build -p dora-maas-client --release
     path: dynamic
     inputs:
-      text: asr/transcription  # Direct from ASR
-      text_to_audio: wserver/text  # Also receive text from WebSocket for greetings
+      text: 
+        source: asr/transcription  # Direct from ASR
+        queue_size: 1000      
+      text_to_audio: 
+        source: wserver/text  # Also receive text from WebSocket for greetings
+        queue_size: 1000
     outputs:
       - text
       - status
@@ -108,7 +114,9 @@ nodes:
     build: pip install -e ../../node-hub/dora-text-segmenter
     path: dora-text-segmenter
     inputs:
-      text: maas-client/text  # From MaaS
+      text: 
+        source: maas-client/text  # From MaaS
+        queue_size: 1000        
       tts_complete: primespeech/segment_complete  # TTS completion signal
     outputs:
       - text_segment
@@ -127,7 +135,9 @@ nodes:
     build: pip install -e ../../node-hub/dora-primespeech
     path: dora-primespeech
     inputs:
-      text: text-segmenter/text_segment  # From text segmenter (not directly from LLM)
+      text: 
+        source: text-segmenter/text_segment  # From text segmenter (not directly from LLM)
+        queue_size: 1000
     outputs:
       - audio
       - status

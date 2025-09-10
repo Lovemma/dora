@@ -426,8 +426,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         }
         
         // Wait for maas-client to be ready before sending session acknowledgments
-        println!("⏳ Waiting 2 seconds for maas-client to connect to dataflow...");
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        println!("⏳ Waiting 10 seconds for maas-client to connect to dataflow...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         println!("✅ maas-client should now be ready");
     }
     
