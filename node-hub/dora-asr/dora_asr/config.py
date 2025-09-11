@@ -46,7 +46,8 @@ class ASRConfig:
         # Check environment variable first
         models_dir = os.getenv("ASR_MODELS_DIR")
         if models_dir:
-            return Path(models_dir)
+            # Expand '~' and environment variables to avoid Docker HOME issues
+            return Path(os.path.expandvars(models_dir)).expanduser()
         
         # Default to home directory
         home = Path.home()
