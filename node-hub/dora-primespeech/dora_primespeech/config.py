@@ -58,7 +58,9 @@ class PrimeSpeechConfig:
         # Check environment variable first
         models_dir = os.getenv("PRIMESPEECH_MODEL_DIR")
         if models_dir:
-            return Path(models_dir)
+            # Expand env vars (e.g., $HOME) and user (~)
+            expanded = os.path.expanduser(os.path.expandvars(models_dir))
+            return Path(expanded)
         
         # Default to home directory
         home = Path.home()

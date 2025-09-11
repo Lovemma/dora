@@ -193,6 +193,8 @@ pub enum ContentPart {
 pub enum OpenAIRealtimeResponse {
     #[serde(rename = "error")]
     Error { error: ErrorDetails },
+    #[serde(rename = "response.created")]
+    ResponseCreated { response: serde_json::Value },
     #[serde(rename = "session.created")]
     SessionCreated { session: serde_json::Value },
     #[serde(rename = "session.updated")]
@@ -390,11 +392,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         let config_path = std::env::var("MAAS_CONFIG_PATH")
             .unwrap_or_else(|_| "maas_mcp_browser_config.toml".to_string());
         
-        match tokio::process::Command::new("cargo")
-            .arg("run")
-            .arg("-p")
-            .arg("dora-maas-client")
-            .arg("--")
+        match tokio::process::Command::new("dora-maas-client")
             .arg("--name")
             .arg("maas-client")
             .env("MAAS_CONFIG_PATH", &config_path)
@@ -421,7 +419,40 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                 }
             }
             Err(e) => {
-                eprintln!("⚠️ Failed to spawn maas-client: {}", e);
+                eprintln!("⚠️ Failed to spawn maas-client from PATH: {}", e);
+                eprintln!("   Falling back to 'cargo run -p dora-maas-client' (dev flow)");
+                match tokio::process::Command::new("cargo")
+                    .arg("run")
+                    .arg("-p")
+                    .arg("dora-maas-client")
+                    .arg("--")
+                    .arg("--name")
+                    .arg("maas-client")
+                    .env("MAAS_CONFIG_PATH", &config_path)
+                    .spawn() {
+                    Ok(mut child) => {
+                        if let Some(pid) = child.id() {
+                            println!("✅ Fallback cargo run: maas-client PID: {}", pid);
+                            println!("   Using config: {}", config_path);
+                            *pid_guard = Some(pid);
+                            tokio::spawn(async move {
+                                match child.wait().await {
+                                    Ok(status) => {
+                                        if !status.success() {
+                                            eprintln!("⚠️ maas-client (cargo run) exited with status: {:?}", status);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("⚠️ Error waiting for maas-client (cargo run): {}", e);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    Err(e2) => {
+                        eprintln!("❌ Failed to spawn maas-client via cargo run as well: {}", e2);
+                    }
+                }
             }
         }
         
@@ -491,6 +522,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let mut text_chunks_sent = 0;
     let mut last_activity = std::time::Instant::now();
     let mut should_send_completion = false; // Track if we need to send completion events after audio
+    let mut response_created_sent = false; // Ensure response.created is sent once per turn
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -513,7 +545,44 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             text_chunks_sent += 1;
                             
                             // Determine the source node and log appropriately with full pipeline context
-                            if id.contains("transcription") {
+                            if id.contains("segment_complete") {
+                                // PrimeSpeech completion or error
+                                if str == "error" {
+                                    // Try to surface error details from metadata
+                                    let mut err = String::from("unknown");
+                                    let mut stage = String::from("unknown");
+                                    if let Some(param) = metadata.parameters.get("error") {
+                                        if let dora_node_api::Parameter::String(s) = param { err = s.clone(); }
+                                    }
+                                    if let Some(param) = metadata.parameters.get("error_stage") {
+                                        if let dora_node_api::Parameter::String(s) = param { stage = s.clone(); }
+                                    }
+                                    println!("┌─ [{}ms] ❌ TTS ERROR", time_since_last);
+                                    println!("│  Node: {} → WebSocket", id);
+                                    println!("│  Stage: {}", stage);
+                                    println!("│  Error: {}", err);
+                                    if let Some(param) = metadata.parameters.get("segment_index") {
+                                        if let dora_node_api::Parameter::Integer(i) = param { println!("│  Segment: {}", i); }
+                                    }
+                                    println!("└─ ⚠️  Forwarding 'error' to client for visibility");
+                                } else {
+                                    let mut remaining: i64 = -1;
+                                    if let Some(param) = metadata.parameters.get("segments_remaining") {
+                                        if let dora_node_api::Parameter::Integer(i) = param { remaining = *i; }
+                                    }
+                                    println!("┌─ [{}ms] ✅ TTS SEGMENT COMPLETE", time_since_last);
+                                    println!("│  Node: {} → WebSocket", id);
+                                    println!("│  Status: '{}'", str);
+                                    println!("│  Segments remaining: {}", remaining);
+                                    println!("└─ 📤 Notifying client of completion");
+                                }
+                            } else if id.contains("log") {
+                                // Log channel (e.g., from PrimeSpeech)
+                                println!("┌─ [{}ms] 🪵 NODE LOG", time_since_last);
+                                println!("│  Source: {}", id);
+                                println!("│  Message: {}", str);
+                                println!("└─ 📤 Forwarding to client as text (debug)");
+                            } else if id.contains("transcription") {
                                 println!("┌─ [{}ms] 🎙️  ASR OUTPUT", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
                                 println!("│  Text: '{}'", str.chars().take(100).collect::<String>());
@@ -583,7 +652,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             
                             // Handle audio data - it might be a list/array
                             let audio_data = if let Ok(vec_data) = into_vec::<f32>(&data) {
-                                println!("   ✓ Converted {} audio samples using into_vec", vec_data.len());
+                                println!("   ✓ Extracted {} audio samples using into_vec", vec_data.len());
                                 vec_data
                             } else {
                                 // Try different array types
@@ -628,7 +697,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             };
                             
                             // For TTS, process immediately without buffering for low latency
-                            // Create a resampler for this chunk
+                            // Create a resampler for this chunk (use source sample_rate from metadata if present)
                             let params = SincInterpolationParameters {
                                 sinc_len: 64,  // Lower for faster processing
                                 f_cutoff: 0.95,
@@ -636,20 +705,46 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 oversampling_factor: 128,
                                 window: WindowFunction::Blackman,
                             };
-                            
+                            // Determine source sample rate (fallback to 32000) and resample to 24000
+                            let src_rate: f64 = if let Some(param) = metadata.parameters.get("sample_rate") {
+                                match param { dora_node_api::Parameter::Integer(i) => (*i as f64).max(1.0), _ => 32000.0 }
+                            } else { 32000.0 };
+                            let dst_rate: f64 = 24000.0;
+                            let ratio = (dst_rate / src_rate).max(1e-6);
+                            println!("   ℹ️  Resampling {} -> {} (ratio {:.5})", src_rate as i64, dst_rate as i64, ratio);
+
                             let mut resampler = SincFixedIn::<f32>::new(
-                                24000.0 / 32000.0,  // Resample ratio (3/4)
+                                ratio,
                                 2.0,
                                 params,
-                                audio_data.len(),   // Exact input size
+                                audio_data.len().max(1),   // Avoid zero-sized buffer
                                 1,
                             ).expect("Failed to create TTS resampler");
-                            
+
                             let input = vec![audio_data];
                             let output = resampler.process(&input, None).expect("TTS resampling failed");
                             let resampled = output[0].clone();
-                            
+                            println!("   ✓ Resampled {} → {} samples", input[0].len(), resampled.len());
+
                             let data = convert_f32_to_pcm16(&resampled);
+                            println!("   ✓ Encoded PCM16 bytes: {}", data.len());
+
+                            // Ensure we notify the client a response was created before first delta
+                            if !response_created_sent {
+                                let created = OpenAIRealtimeResponse::ResponseCreated {
+                                    response: serde_json::json!({
+                                        "id": "123",
+                                        "status": "in_progress",
+                                        "output": []
+                                    }),
+                                };
+                                let created_frame = Frame::text(Payload::Bytes(
+                                    Bytes::from(serde_json::to_string(&created).unwrap()).into(),
+                                ));
+                                ws.write_frame(created_frame).await?;
+                                println!("✅ Sent response.created (id=123)");
+                                response_created_sent = true;
+                            }
                             let serialized_data = OpenAIRealtimeResponse::ResponseAudioDelta {
                                 response_id: "123".to_string(),
                                 item_id: "123".to_string(),
@@ -738,7 +833,13 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         }
                     }
                     dora_node_api::Event::Error(_) => {
-                        // println!("Error in input: {}", s);
+                        // Keep the WebSocket open on upstream errors; just skip this event
+                        continue;
+                    }
+                    dora_node_api::Event::InputClosed { id } => {
+                        // Do NOT close the WebSocket when a single input closes (e.g., text).
+                        // This event only indicates no more items for that input; the session continues.
+                        println!("ℹ️  Dora input closed: {:?}", id);
                         continue;
                     }
                     _ => break,
@@ -874,14 +975,32 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                     Bytes::from(serde_json::to_string(&commit_msg).unwrap()).into(),
                 ));
                 ws.write_frame(commit_frame).await?;
+                println!("✅ Sent input_audio_buffer.committed");
                 
                 // Trigger response creation (this is what makes server_vad work)
                 // The server needs to automatically create a response when speech ends
                 println!("🤖 Triggering LLM response after speech ended");
-                
                 // Send the user's audio to the LLM by committing and creating response
                 // The audio has already been forwarded to ASR for transcription
-                // Now we need to tell the system to generate a response
+                // Now we need to tell the client to generate a response per Realtime protocol
+                let create_response = serde_json::json!({
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["text", "audio"],
+                        "instructions": serde_json::Value::Null,
+                        "voice": serde_json::Value::Null,
+                        "output_audio_format": "pcm16",
+                        "tools": [],
+                        "tool_choice": "none",
+                        "temperature": 0.8,
+                        "max_output_tokens": 4096
+                    }
+                });
+                let response_frame = Frame::text(Payload::Bytes(
+                    Bytes::from(serde_json::to_string(&create_response).unwrap()).into(),
+                ));
+                ws.write_frame(response_frame).await?;
+                println!("✅ Sent response.create to trigger LLM");
             }
             
             // Send completion events immediately after audio frame if this was the last segment
@@ -933,6 +1052,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                 
                 // Reset flag
                 should_send_completion = false;
+                response_created_sent = false;
             }
         }
     }

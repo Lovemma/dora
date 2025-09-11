@@ -37,15 +37,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev openssl libssl-dev \
     portaudio19-dev libsndfile1 libgomp1 libomp-dev \
     ffmpeg \
+    git \
+    nodejs npm \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/dora
 # Copy only needed parts of your (local) repo to reduce final image size
 RUN mkdir -p /opt/dora/examples/chatbot-openai-websocket-browser \
+             /opt/dora/examples/chatbot-openai-0905 \
+             /opt/dora/examples/chatbot-alicloud-0908 \
              /opt/dora/examples/model-manager \
              /opt/dora/examples/setup-new-chatbot \
              /opt/dora/node-hub
 COPY --from=builder /src/examples/chatbot-openai-websocket-browser /opt/dora/examples/chatbot-openai-websocket-browser
+COPY --from=builder /src/examples/chatbot-openai-0905 /opt/dora/examples/chatbot-openai-0905
+COPY --from=builder /src/examples/chatbot-alicloud-0908 /opt/dora/examples/chatbot-alicloud-0908
 COPY --from=builder /src/examples/model-manager /opt/dora/examples/model-manager
 COPY --from=builder /src/examples/setup-new-chatbot /opt/dora/examples/setup-new-chatbot
 COPY --from=builder /src/node-hub/dora-asr /opt/dora/node-hub/dora-asr
@@ -71,11 +77,14 @@ RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
  && pip install --no-cache-dir pyaudio sounddevice \
  && pip install --no-cache-dir funasr-onnx onnxruntime onnxruntime-extensions
 
-# Install pywhispercpp from GitHub (requires git); install git temporarily and purge afterwards to save space
-RUN apt-get update && apt-get install -y --no-install-recommends git \
- && pip install --no-cache-dir "git+https://github.com/absadiki/pywhispercpp.git" \
- && apt-get purge -y git && apt-get autoremove -y \
- && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Preinstall MCP servers and Playwright browsers for headless automation
+# - Global install of MCP servers avoids runtime downloads
+# - Install Chromium and OS deps for Playwright in the image layer
+RUN npm i -g @playwright/mcp @modelcontextprotocol/server-filesystem \
+ && npx --yes playwright install --with-deps chromium
+
+# Install pywhispercpp from GitHub (requires git available in runtime image)
+RUN pip install --no-cache-dir "git+https://github.com/absadiki/pywhispercpp.git"
 
 # JupyterLab for in-container editing (optional service)
 RUN pip install --no-cache-dir jupyterlab

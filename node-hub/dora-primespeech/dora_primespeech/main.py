@@ -4,6 +4,9 @@ High-quality text-to-speech using GPT-SoVITS technology.
 """
 
 import time
+import os
+import sys
+import traceback
 import json
 import numpy as np
 import pyarrow as pa
@@ -29,6 +32,11 @@ def send_log(node, level, message, config_level="INFO"):
         return
     
     formatted_message = f"[{level}] {message}"
+    # Also print to console so errors show in docker logs
+    try:
+        print(formatted_message, file=sys.stderr if level in {"ERROR", "WARNING"} else sys.stdout, flush=True)
+    except Exception:
+        pass
     log_data = {
         "node": "primespeech",
         "level": level,
@@ -36,6 +44,25 @@ def send_log(node, level, message, config_level="INFO"):
         "timestamp": time.time()
     }
     node.send_output("log", pa.array([json.dumps(log_data)]))
+
+
+def _validate_models_path(logger, models_env_var="PRIMESPEECH_MODEL_DIR") -> Optional[Path]:
+    """Validate that required model directory exists and contains MoYoYo subdir.
+    Returns the resolved path if valid, else None.
+    """
+    raw = os.environ.get(models_env_var)
+    if not raw:
+        logger("ERROR", f"Missing {models_env_var} environment variable; TTS cannot load models")
+        return None
+    # Expand env vars (e.g., $HOME) and user (~)
+    base = Path(os.path.expanduser(os.path.expandvars(raw)))
+    if not base.exists():
+        logger("ERROR", f"{models_env_var} points to non-existent path: {base}")
+        return None
+    moyoyo_dir = base / "moyoyo"
+    if not moyoyo_dir.exists():
+        logger("WARNING", f"Expected models under: {moyoyo_dir} (directory missing)")
+    return base
 
 
 def main():
@@ -117,37 +144,55 @@ def main():
                 # Load models if not loaded
                 if not model_loaded:
                     send_log(node, "INFO", "Loading models for the first time...", config.LOG_LEVEL)
-                    
-                    # Always use PRIMESPEECH_MODEL_DIR
-                    send_log(node, "INFO", "Using PRIMESPEECH_MODEL_DIR for models...", config.LOG_LEVEL)
-                    
-                    # Initialize TTS engine
-                    # Convert voice name to lowercase and remove spaces for MoYoYo compatibility
-                    moyoyo_voice = voice_name.lower().replace(" ", "")
-                    device = "cuda" if config.USE_GPU and config.DEVICE.startswith("cuda") else "cpu"
-                    
-                    enable_streaming = config.RETURN_FRAGMENT if hasattr(config, 'RETURN_FRAGMENT') else False
-                    
-                    # Initialize TTS wrapper using PRIMESPEECH_MODEL_DIR
-                    tts_engine = MoYoYoTTSWrapper(
-                        voice=moyoyo_voice, 
-                        device=device,
-                        enable_streaming=enable_streaming,
-                        chunk_duration=0.3,
-                        voice_config=voice_config,
-                        logger_func=lambda level, msg: send_log(node, level, msg, config.LOG_LEVEL)
-                    )
-                    
-                    # Check if initialization succeeded
-                    if tts_engine is None or not hasattr(tts_engine, 'tts') or tts_engine.tts is None:
-                        send_log(node, "ERROR", "TTS engine initialization failed!", config.LOG_LEVEL)
-                        send_log(node, "ERROR", "TTS wrapper exists but internal TTS is None", config.LOG_LEVEL)
-                        # Continue anyway to see what happens
-                    else:
-                        send_log(node, "INFO", "TTS engine initialized successfully", config.LOG_LEVEL)
-                    
-                    model_loaded = True
-                    send_log(node, "INFO", "TTS engine ready", config.LOG_LEVEL)
+                    # Validate models directory early so failures are visible
+                    _validate_models_path(lambda lvl, msg: send_log(node, lvl, msg, config.LOG_LEVEL))
+
+                    try:
+                        # Always use PRIMESPEECH_MODEL_DIR
+                        send_log(node, "INFO", "Using PRIMESPEECH_MODEL_DIR for models...", config.LOG_LEVEL)
+                        # Initialize TTS engine
+                        # Convert voice name to lowercase and remove spaces for MoYoYo compatibility
+                        moyoyo_voice = voice_name.lower().replace(" ", "")
+                        device = "cuda" if config.USE_GPU and config.DEVICE.startswith("cuda") else "cpu"
+
+                        enable_streaming = config.RETURN_FRAGMENT if hasattr(config, 'RETURN_FRAGMENT') else False
+
+                        # Initialize TTS wrapper using PRIMESPEECH_MODEL_DIR
+                        tts_engine = MoYoYoTTSWrapper(
+                            voice=moyoyo_voice,
+                            device=device,
+                            enable_streaming=enable_streaming,
+                            chunk_duration=0.3,
+                            voice_config=voice_config,
+                            logger_func=lambda level, msg: send_log(node, level, msg, config.LOG_LEVEL)
+                        )
+
+                        # Check if initialization succeeded
+                        if tts_engine is None or not hasattr(tts_engine, 'tts') or tts_engine.tts is None:
+                            send_log(node, "ERROR", "TTS engine initialization failed!", config.LOG_LEVEL)
+                            send_log(node, "ERROR", "TTS wrapper exists but internal TTS is None", config.LOG_LEVEL)
+                        else:
+                            send_log(node, "INFO", "TTS engine initialized successfully", config.LOG_LEVEL)
+                        model_loaded = True
+                        send_log(node, "INFO", "TTS engine ready", config.LOG_LEVEL)
+                    except Exception as init_err:
+                        send_log(node, "ERROR", f"TTS init error: {init_err}", config.LOG_LEVEL)
+                        send_log(node, "ERROR", f"Traceback: {traceback.format_exc()}", config.LOG_LEVEL)
+                        # Mark as not loaded and send error completion without audio
+                        model_loaded = False
+                        node.send_output(
+                            "segment_complete",
+                            pa.array(["error"]),
+                            metadata={
+                                "session_id": session_id,
+                                "request_id": request_id,
+                                "segment_index": segment_index,
+                                "error": str(init_err),
+                                "error_stage": "init"
+                            }
+                        )
+                        # Skip this event since we cannot synthesize
+                        continue
                 
                 # Synthesize speech
                 start_time = time.time()
@@ -175,27 +220,36 @@ def main():
                             fragment_num += 1
                             fragment_duration = len(audio_fragment) / sample_rate
                             total_audio_duration += fragment_duration
-                            
-                            node.send_output(
-                                "audio",
-                                pa.array([audio_fragment]),
-                                metadata={
-                                    "session_id": session_id,
-                                    "request_id": request_id,
-                                    "segment_index": segment_index,
-                                    "segments_remaining": metadata.get("segments_remaining", 0),
-                                    "conversation_id": metadata.get("conversation_id"),
-                                    "fragment_num": fragment_num,
-                                    "sample_rate": sample_rate,
-                                    "duration": fragment_duration,
-                                    "is_streaming": True,
-                                    "voice": voice_name,
-                                    "language": language
-                                }
-                            )
+                            # Guard against empty fragments
+                            if audio_fragment is None or len(audio_fragment) == 0:
+                                send_log(node, "WARNING", f"Skipping empty audio fragment {fragment_num}", config.LOG_LEVEL)
+                            else:
+                                # Ensure type is float32 for consistency
+                                if audio_fragment.dtype != np.float32:
+                                    audio_fragment = audio_fragment.astype(np.float32)
+                                node.send_output(
+                                    "audio",
+                                    pa.array([audio_fragment]),
+                                    metadata={
+                                        "session_id": session_id,
+                                        "request_id": request_id,
+                                        "segment_index": segment_index,
+                                        "segments_remaining": metadata.get("segments_remaining", 0),
+                                        "conversation_id": metadata.get("conversation_id"),
+                                        "fragment_num": fragment_num,
+                                        "sample_rate": sample_rate,
+                                        "duration": fragment_duration,
+                                        "is_streaming": True,
+                                        "voice": voice_name,
+                                        "language": language
+                                    }
+                                )
                         
                         synthesis_time = time.time() - start_time
                         send_log(node, "INFO", f"Streamed {fragment_num} fragments, {total_audio_duration:.2f}s audio in {synthesis_time:.3f}s", config.LOG_LEVEL)
+                        # If nothing was streamed, mark as error to avoid hanging clients
+                        if fragment_num == 0:
+                            raise RuntimeError("No audio fragments produced during streaming synthesis")
                         
                     else:
                         # Batch synthesis
@@ -203,6 +257,11 @@ def main():
                         
                         synthesis_time = time.time() - start_time
                         audio_duration = len(audio_array) / sample_rate
+                        if audio_array is None or len(audio_array) == 0:
+                            raise RuntimeError("TTS returned empty audio array")
+                        # Normalize dtype
+                        if audio_array.dtype != np.float32:
+                            audio_array = audio_array.astype(np.float32)
                         
                         total_syntheses += 1
                         total_duration += audio_duration
@@ -243,24 +302,11 @@ def main():
                     send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)
                     
                 except Exception as e:
-                    import traceback
                     error_details = traceback.format_exc()
                     send_log(node, "ERROR", f"Synthesis error: {e}", config.LOG_LEVEL)
                     send_log(node, "ERROR", f"Traceback: {error_details}", config.LOG_LEVEL)
                     
-                    # Send empty audio on error
-                    node.send_output(
-                        "audio",
-                        pa.array([np.array([], dtype=np.float32)]),
-                        metadata={
-                            "session_id": session_id,
-                            "request_id": request_id,
-                            "error": str(e),
-                            "sample_rate": config.SAMPLE_RATE
-                        }
-                    )
-                    
-                    # Still send segment_complete even on error to avoid hanging
+                    # Do NOT send invalid audio on error; only notify completion with error
                     node.send_output(
                         "segment_complete",
                         pa.array(["error"]),
@@ -268,7 +314,8 @@ def main():
                             "session_id": session_id,
                             "request_id": request_id,
                             "segment_index": segment_index,
-                            "error": str(e)
+                            "error": str(e),
+                            "error_stage": "synthesis"
                         }
                     )
                     send_log(node, "ERROR", f"Sent error segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)
