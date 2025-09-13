@@ -48,3 +48,17 @@ args = [
     "/tmp/browser-data"
 ]
 
+
+# Playwright MCP Server for browser automation
+[[mcp.servers]]
+name = "playwright"
+protocol = "stdio"
+command = "npx"
+args = [
+    "-y",
+    "@playwright/mcp@latest",
+    "--headless",
+    "--no-sandbox",
+    "--output-dir",
+    "/tmp/browser-data"
+]
