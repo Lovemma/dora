@@ -59,12 +59,14 @@ services:
       - "8123:8123"
     env_file:
       - ../.env
+    # Use the repo's entrypoint to pick up script tweaks without rebuilding
+    entrypoint: ["/opt/dora/docker/entrypoint.sh"]
     environment:
       HOST: 0.0.0.0
       PORT: 8123
       RUST_LOG: info
       SKIP_DORA_BUILD: "1"
-      MAAS_CONFIG_PATH: /opt/dora/examples/chatbot-openai-0905/maas_mcp_browser_config_zh.toml
+      MAAS_CONFIG_PATH: /opt/dora/examples/chatbot-openai-0905/maas_mcp_browser_config_zh.local.toml
       # Give dataflow a stable name and tail node logs to container stdout
       DATAFLOW_NAME: chatflow0905
       TAIL_NODE_LOGS: wserver,primespeech,text-segmenter,asr,maas-client
@@ -78,6 +80,8 @@ services:
       - ${REPO_DIR:-..}:/opt/dora
       - ${MODELS_DIR:?set MODELS_DIR}:/root/.dora/models
       - ${HF_CACHE:?set HF_CACHE}:/root/.cache/huggingface
+      # Persist Playwright MCP browser data (cookies, storage, screenshots)
+      - browser-data:/tmp/browser-data
     depends_on:
       - downloader
 
@@ -122,3 +126,6 @@ services:
       - ${REPO_DIR:-..}:/opt/dora
       - ${MODELS_DIR:?set MODELS_DIR}:/root/.dora/models:ro
       - ${HF_CACHE:?set HF_CACHE}:/root/.cache/huggingface
+
+volumes:
+  browser-data:
