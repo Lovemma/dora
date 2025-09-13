@@ -52,11 +52,21 @@ if [ -f "${DATAFLOW_FILE}" ]; then
   # Optionally tail Dora node logs to container stdout for easier debugging
   # Set TAIL_NODE_LOGS to a comma-separated list, e.g.: "primespeech,text-segmenter,asr"
   if [ -n "${TAIL_NODE_LOGS:-}" ]; then
-    # Start one background tail per requested node
+    # Start one robust background tail per requested node that retries until available
     for NODE in $(echo "$TAIL_NODE_LOGS" | tr ',' ' '); do
       echo "[entrypoint] Tailing Dora logs for node: $NODE (dataflow: ${DATAFLOW_NAME})"
-      # Run in background; prefix lines with node name for readability
-      sh -c "dora logs '${DATAFLOW_NAME}' '$NODE' 2>&1 | sed -u \"s/^/[node:$NODE] /\"" &
+      # Keep attempting to stream logs; retry on early failures or stream end
+      env NODE="$NODE" DATAFLOW_NAME="$DATAFLOW_NAME" sh -c '
+        set +e
+        while :; do
+          if dora logs "$DATAFLOW_NAME" "$NODE" 2>&1 | sed -u "s/^/[node:$NODE] /"; then
+            echo "[entrypoint] Log stream ended for node: $NODE (dataflow: $DATAFLOW_NAME). Retrying in 1s..." >&2
+          else
+            echo "[entrypoint] Logs unavailable yet for node: $NODE. Retrying in 1s..." >&2
+          fi
+          sleep 1
+        done
+      ' &
     done
   fi
 else
