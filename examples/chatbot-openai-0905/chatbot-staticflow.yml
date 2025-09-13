@@ -92,10 +92,10 @@ nodes:
       LOG_LEVEL: DEBUG
 
 
-  # MaaS Client with Playwright Browser Tools
+  # MaaS Client with Playwright Browser Tools (fixed node ID)
   - id: maas-client
-    build: cargo build -p dora-maas-client --release
-    path: dynamic
+    # Run as a static node so Dora spawns it with a stable ID
+    path: /usr/local/bin/dora-maas-client
     inputs:
       text: asr/transcription  # Direct from ASR
       text_to_audio: wserver/text  # Also receive text from WebSocket for greetings
@@ -104,7 +104,8 @@ nodes:
       - status
       - log
     env:
-      MAAS_CONFIG_PATH: maas_mcp_browser_config_zh.toml  # Force Chinese system prompt
+      # Use the browser-enabled MaaS config (Chinese system prompt)
+      MAAS_CONFIG_PATH: maas_mcp_browser_config_zh.toml
       LOG_LEVEL: INFO
 
   # Text Segmenter - buffers LLM output and sends to TTS one segment at a time
