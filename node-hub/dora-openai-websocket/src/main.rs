@@ -283,6 +283,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     
     if frame.opcode != OpCode::Text {
         println!("ERROR: Expected text frame, got {:?}", frame.opcode);
+        // Send proper close for protocol error
+        ws.write_frame(Frame::close(1002, b"Protocol error")).await?;
         return Err(WebSocketError::InvalidConnectionHeader);
     }
     
@@ -295,12 +297,15 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         Err(e) => {
             println!("ERROR: Failed to parse message: {}", e);
             println!("Raw payload: {}", String::from_utf8_lossy(&frame.payload));
+            // Unsupported/invalid initial data
+            ws.write_frame(Frame::close(1003, b"Unsupported data")).await?;
             return Err(WebSocketError::InvalidConnectionHeader);
         }
     };
     
     let OpenAIRealtimeMessage::SessionUpdate { session } = data else {
         println!("ERROR: Expected SessionUpdate, got different message type");
+        ws.write_frame(Frame::close(1003, b"Unsupported data")).await?;
         return Err(WebSocketError::InvalidConnectionHeader);
     };
     println!("Received SessionUpdate from client");
@@ -523,6 +528,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let mut last_activity = std::time::Instant::now();
     let mut should_send_completion = false; // Track if we need to send completion events after audio
     let mut response_created_sent = false; // Ensure response.created is sent once per turn
+    // Track if we've replied to a Close frame
+    let mut close_replied = false;
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -850,7 +857,24 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             future::Either::Right(Ok(frame)) => {
                 // println!("Received WebSocket frame, opcode: {:?}, payload size: {}", frame.opcode, frame.payload.len());
                 match frame.opcode {
-                    OpCode::Close => break,
+                    OpCode::Close => {
+                        // Echo close and break the loop
+                        if !close_replied {
+                            ws.write_frame(Frame::close(1000, b"Normal closure")).await?;
+                            close_replied = true;
+                        }
+                        break
+                    },
+                    OpCode::Ping => {
+                        // Respond to ping with pong to keep the connection alive
+                        let pong = Frame::pong(frame.payload);
+                        ws.write_frame(pong).await?;
+                        continue;
+                    }
+                    OpCode::Pong => {
+                        // Ignore
+                        continue;
+                    }
                     OpCode::Text | OpCode::Binary => {
                         let data: OpenAIRealtimeMessage =
                             serde_json::from_slice(&frame.payload).unwrap();
@@ -961,46 +985,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             
             ws.write_frame(frame).await?;
             
-            // If question ended, send commit and response.create to trigger LLM
+            // If question ended, do NOT send client-origin events back to the client.
+            // We already forward ASR text to the MaaS client, which triggers the LLM.
+            // Sending `input_audio_buffer.committed` or `response.create` from server→client
+            // is invalid for the OpenAI Realtime protocol and can cause disconnects.
             if is_question_ended {
-                println!("📤 Sending commit and response.create after question_ended");
-                
-                // Send input_audio_buffer.committed
-                let commit_msg = serde_json::json!({
-                    "type": "input_audio_buffer.committed",
-                    "item_id": "123",
-                    "audio": ""
-                });
-                let commit_frame = Frame::text(Payload::Bytes(
-                    Bytes::from(serde_json::to_string(&commit_msg).unwrap()).into(),
-                ));
-                ws.write_frame(commit_frame).await?;
-                println!("✅ Sent input_audio_buffer.committed");
-                
-                // Trigger response creation (this is what makes server_vad work)
-                // The server needs to automatically create a response when speech ends
-                println!("🤖 Triggering LLM response after speech ended");
-                // Send the user's audio to the LLM by committing and creating response
-                // The audio has already been forwarded to ASR for transcription
-                // Now we need to tell the client to generate a response per Realtime protocol
-                let create_response = serde_json::json!({
-                    "type": "response.create",
-                    "response": {
-                        "modalities": ["text", "audio"],
-                        "instructions": serde_json::Value::Null,
-                        "voice": serde_json::Value::Null,
-                        "output_audio_format": "pcm16",
-                        "tools": [],
-                        "tool_choice": "none",
-                        "temperature": 0.8,
-                        "max_output_tokens": 4096
-                    }
-                });
-                let response_frame = Frame::text(Payload::Bytes(
-                    Bytes::from(serde_json::to_string(&create_response).unwrap()).into(),
-                ));
-                ws.write_frame(response_frame).await?;
-                println!("✅ Sent response.create to trigger LLM");
+                println!("ℹ️  Question ended detected; relying on server-side LLM trigger (no client-origin events sent)");
             }
             
             // Send completion events immediately after audio frame if this was the last segment
@@ -1057,7 +1047,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         }
     }
     
-    // Connection closed
+    // Connection closed - send a proper close if we haven't yet
+    if !close_replied {
+        let _ = ws.write_frame(Frame::close(1000, b"Normal closure")).await;
+    }
     println!("🔌 WebSocket client disconnected");
 
     Ok(())
