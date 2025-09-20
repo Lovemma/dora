@@ -8,7 +8,8 @@ use dora_daemon::LogDestination;
 #[cfg(feature = "tracing")]
 use dora_tracing::TracingBuilder;
 
-use eyre::Context;
+use eyre::{Context, WrapErr};
+use tracing::level_filters::LevelFilter;
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -51,7 +52,7 @@ impl Executable for Daemon {
             if !self.quiet {
                 builder = builder.with_stdout("info,zenoh=warn");
             }
-            builder = builder.with_file(filename, LevelFilter::INFO)?;
+            builder = builder.with_file(filename, LevelFilter::from_level(tracing::Level::INFO))?;
             builder
                 .build()
                 .wrap_err("failed to set up tracing subscriber")?;

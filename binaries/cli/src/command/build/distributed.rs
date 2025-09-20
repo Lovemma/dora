@@ -7,7 +7,7 @@ use dora_message::{
     coordinator_to_cli::ControlRequestReply,
     id::NodeId,
 };
-use eyre::{Context, bail};
+use eyre::{Context, WrapErr, bail};
 use std::{
     collections::BTreeMap,
     net::{SocketAddr, TcpStream},

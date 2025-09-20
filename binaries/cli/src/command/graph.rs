@@ -1,6 +1,6 @@
 use super::Executable;
 use dora_core::descriptor::{Descriptor, DescriptorExt};
-use eyre::Context;
+use eyre::{Context, WrapErr};
 use std::{
     fs::File,
     io::Write,

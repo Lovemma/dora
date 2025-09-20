@@ -1,6 +1,6 @@
 use super::{Executable, default_tracing};
 use clap::Subcommand;
-use eyre::{Context, bail};
+use eyre::{Context, WrapErr, bail};
 
 #[derive(Debug, Subcommand)]
 /// Dora CLI self-management commands

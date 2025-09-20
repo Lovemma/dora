@@ -112,6 +112,9 @@ pub enum OpenAIRealtimeMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         event_id: Option<String>,
     },
+    // Gracefully ignore unknown/unsupported client events
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -378,8 +381,15 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         }
     };
     
-    // Kill existing maas-client if any and spawn a new one with updated config
-    if let Some(pid_arc) = MAAS_PID.get() {
+    // Optionally spawn a dynamic maas-client. When using a static maas-client in the dataflow,
+    // set SPAWN_MAAS=0 (or "false") to skip spawning here and reuse the existing node.
+    let spawn_maas = std::env::var("SPAWN_MAAS")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(true);
+
+    if spawn_maas {
+        // Kill existing maas-client if any and spawn a new one with updated config
+        if let Some(pid_arc) = MAAS_PID.get() {
         let mut pid_guard = pid_arc.lock().await;
         if let Some(pid) = *pid_guard {
             println!("Killing existing maas-client with PID: {}", pid);
@@ -461,10 +471,13 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             }
         }
         
-        // Wait for maas-client to be ready before sending session acknowledgments
-        println!("⏳ Waiting 10 seconds for maas-client to connect to dataflow...");
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-        println!("✅ maas-client should now be ready");
+            // Wait for maas-client to be ready before sending session acknowledgments
+            println!("⏳ Waiting 10 seconds for maas-client to connect to dataflow...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            println!("✅ maas-client should now be ready");
+        }
+    } else {
+        println!("SPAWN_MAAS disabled; using existing static maas-client in dataflow");
     }
     
     // NOW send session acknowledgments after maas-client is ready
@@ -528,8 +541,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let mut last_activity = std::time::Instant::now();
     let mut should_send_completion = false; // Track if we need to send completion events after audio
     let mut response_created_sent = false; // Ensure response.created is sent once per turn
+    let mut response_active = false; // Only emit deltas while a response is active
     // Track if we've replied to a Close frame
     let mut close_replied = false;
+    // Deduplicate greeting instructions to avoid repeated forwards
+    let mut last_greeting: Option<String> = None;
+    let mut last_greet_time: Option<std::time::Instant> = None;
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -588,7 +605,9 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 println!("┌─ [{}ms] 🪵 NODE LOG", time_since_last);
                                 println!("│  Source: {}", id);
                                 println!("│  Message: {}", str);
-                                println!("└─ 📤 Forwarding to client as text (debug)");
+                                println!("└─ ▶️  Not forwarding node logs to client");
+                                // Skip forwarding of debug logs to client to avoid protocol noise
+                                continue;
                             } else if id.contains("transcription") {
                                 println!("┌─ [{}ms] 🎙️  ASR OUTPUT", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
@@ -609,18 +628,45 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 println!("└─ 📤 Forwarding to client");
                             }
                             
-                            let serialized_data =
+                            // Ensure a response is active before sending any deltas
+                            if !response_active {
+                                let created = OpenAIRealtimeResponse::ResponseCreated {
+                                    response: serde_json::json!({
+                                        "id": "123",
+                                        "status": "in_progress",
+                                        "output": []
+                                    }),
+                                };
+                                let created_frame = Frame::text(Payload::Bytes(
+                                    Bytes::from(serde_json::to_string(&created).unwrap()).into(),
+                                ));
+                                ws.write_frame(created_frame).await?;
+                                println!("✅ Sent response.created (id=123) before transcript/text delta");
+                                response_created_sent = true;
+                                response_active = true;
+                            }
+
+                            // Route: ASR transcription -> transcript delta; LLM text -> text delta
+                            let serialized_data = if id.contains("transcription") {
                                 OpenAIRealtimeResponse::ResponseAudioTranscriptDelta {
                                     response_id: "123".to_string(),
                                     item_id: "123".to_string(),
                                     output_index: 123,
                                     content_index: 123,
                                     delta: str.to_string(),
-                                };
+                                }
+                            } else {
+                                OpenAIRealtimeResponse::ResponseTextDelta {
+                                    response_id: "123".to_string(),
+                                    item_id: "123".to_string(),
+                                    output_index: 123,
+                                    content_index: 123,
+                                    delta: str.to_string(),
+                                }
+                            };
 
                             let frame = Frame::text(Payload::Bytes(
-                                Bytes::from(serde_json::to_string(&serialized_data).unwrap())
-                                    .into(),
+                                Bytes::from(serde_json::to_string(&serialized_data).unwrap()).into(),
                             ));
                             frame
                         } else if id.contains("audio") {
@@ -751,6 +797,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 ws.write_frame(created_frame).await?;
                                 println!("✅ Sent response.created (id=123)");
                                 response_created_sent = true;
+                                response_active = true;
                             }
                             let serialized_data = OpenAIRealtimeResponse::ResponseAudioDelta {
                                 response_id: "123".to_string(),
@@ -849,7 +896,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         println!("ℹ️  Dora input closed: {:?}", id);
                         continue;
                     }
-                    _ => break,
+                    _ => {
+                        // Ignore other event types to keep the connection alive
+                        continue;
+                    },
                 };
                 Some(frame)
             }
@@ -876,8 +926,20 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         continue;
                     }
                     OpCode::Text | OpCode::Binary => {
-                        let data: OpenAIRealtimeMessage =
-                            serde_json::from_slice(&frame.payload).unwrap();
+                        // Parse client JSON safely; ignore unknown or malformed messages
+                        let parsed: Result<OpenAIRealtimeMessage, _> =
+                            serde_json::from_slice(&frame.payload);
+                        let data = match parsed {
+                            Ok(d) => d,
+                            Err(e) => {
+                                println!(
+                                    "⚠️  Ignoring malformed client message ({} bytes): {}",
+                                    frame.payload.len(), e
+                                );
+                                // Keep the connection open; move to next iteration
+                                continue;
+                            }
+                        };
                         // println!("Parsed WebSocket message type: {:?}", std::mem::discriminant(&data));
 
                         match data {
@@ -943,32 +1005,44 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             OpenAIRealtimeMessage::ResponseCreate { response } => {
                                 println!("📨 Received ResponseCreate from client with instructions");
                                 if let Some(text) = response.instructions {
-                                    println!("🎯 Forwarding greeting instructions to maas-client: {}", text);
-                                    // Mark that we're expecting greeting audio from TTS
-                                    // Segment counting now handled via metadata
-                                    match node.send_output(
-                                        DataId::from("text".to_string()),
-                                        Default::default(),
-                                        text.into_arrow(),
-                                    ) {
-                                        Ok(_) => {
-                                            println!("✅ Successfully sent greeting to maas-client");
-                                            println!("⏳ Waiting for LLM response and TTS audio...");
-                                            // Don't send ResponseDone yet - wait for audio to arrive
-                                        }
-                                        Err(e) => {
-                                            eprintln!("⚠️ Failed to send greeting to maas-client: {:?}", e);
-                                            eprintln!("   This might happen if maas-client isn't fully connected yet");
-                                            // Segment counting now handled via metadata
-                                            // Don't crash, just continue - maas-client might connect later
+                                    // Throttle duplicate greetings: ignore if same as the last within 3s
+                                    let now = std::time::Instant::now();
+                                    let is_dup = last_greeting.as_ref().map(|g| g == &text).unwrap_or(false)
+                                        && last_greet_time.map(|t| now.duration_since(t).as_millis() < 3000).unwrap_or(false);
+                                    if is_dup {
+                                        println!("↩️  Ignoring duplicate greeting within 3s window");
+                                    } else {
+                                        println!("🎯 Forwarding greeting instructions to maas-client: {}", text);
+                                        match node.send_output(
+                                            DataId::from("text".to_string()),
+                                            Default::default(),
+                                            text.clone().into_arrow(),
+                                        ) {
+                                            Ok(_) => {
+                                                last_greeting = Some(text);
+                                                last_greet_time = Some(now);
+                                                println!("✅ Successfully sent greeting to maas-client");
+                                                println!("⏳ Waiting for LLM response and TTS audio...");
+                                            }
+                                            Err(e) => {
+                                                eprintln!("⚠️ Failed to send greeting to maas-client: {:?}", e);
+                                                eprintln!("   This might happen if maas-client isn't fully connected yet");
+                                            }
                                         }
                                     }
                                 }
                             }
+                            OpenAIRealtimeMessage::Other => {
+                                // Unknown/unsupported client message type; skip
+                                continue;
+                            }
                             _ => {}
                         }
                     }
-                    _ => break,
+                    _ => {
+                        // Ignore other client message variants; keep the connection open
+                        continue;
+                    },
                 }
                 None
             }
@@ -1040,9 +1114,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                 ws.write_frame(response_done_frame).await?;
                 println!("✅ Sent response.done - conversation complete");
                 
-                // Reset flag
+                // Reset flags; mark response as closed to suppress late deltas
                 should_send_completion = false;
                 response_created_sent = false;
+                response_active = false;
             }
         }
     }

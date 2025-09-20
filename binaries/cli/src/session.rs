@@ -5,7 +5,7 @@ use std::{
 
 use dora_core::build::BuildInfo;
 use dora_message::{BuildId, SessionId, common::GitSource, id::NodeId};
-use eyre::{Context, ContextCompat};
+use eyre::{Context, ContextCompat, WrapErr};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DataflowSession {

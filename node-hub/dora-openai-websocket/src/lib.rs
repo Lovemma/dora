@@ -170,6 +170,8 @@ pub enum OpenAIRealtimeResponse {
     SessionCreated { session: serde_json::Value },
     #[serde(rename = "session.updated")]
     SessionUpdated { session: serde_json::Value },
+    #[serde(rename = "response.created")]
+    ResponseCreated { response: serde_json::Value },
     #[serde(rename = "conversation.item.created")]
     ConversationItemCreated { item: serde_json::Value },
     #[serde(rename = "conversation.item.truncated")]
@@ -383,7 +385,9 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     ).expect("Failed to create downsampler");
     
     let mut audio_buffer = Vec::new(); // Buffer for microphone audio
-    
+    // Track current response id for lifecycle events
+    let mut current_response_id: Option<String> = None;
+
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -400,14 +404,14 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         if data.data_type() == &DataType::Utf8 {
                             let data = data.as_string::<i32>();
                             let str = data.value(0);
-                            let serialized_data =
-                                OpenAIRealtimeResponse::ResponseAudioTranscriptDelta {
-                                    response_id: "123".to_string(),
-                                    item_id: "123".to_string(),
-                                    output_index: 123,
-                                    content_index: 123,
-                                    delta: str.to_string(),
-                                };
+                            let rid = current_response_id.clone().unwrap_or_else(|| "auto".to_string());
+                            let serialized_data = OpenAIRealtimeResponse::ResponseAudioTranscriptDelta {
+                                response_id: rid,
+                                item_id: "item-1".to_string(),
+                                output_index: 0,
+                                content_index: 0,
+                                delta: str.to_string(),
+                            };
 
                             let frame = Frame::text(Payload::Bytes(
                                 Bytes::from(serde_json::to_string(&serialized_data).unwrap())
@@ -478,11 +482,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             let resampled = output[0].clone();
                             
                             let data = convert_f32_to_pcm16(&resampled);
+                            let rid = current_response_id.clone().unwrap_or_else(|| "auto".to_string());
                             let serialized_data = OpenAIRealtimeResponse::ResponseAudioDelta {
-                                response_id: "123".to_string(),
-                                item_id: "123".to_string(),
-                                output_index: 123,
-                                content_index: 123,
+                                response_id: rid,
+                                item_id: "item-1".to_string(),
+                                output_index: 0,
+                                content_index: 0,
                                 delta: general_purpose::STANDARD.encode(data),
                             };
                             finished = true;
@@ -493,11 +498,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             ));
                             frame
                         } else if id.contains("speech_started") {
-                            let serialized_data =
-                                OpenAIRealtimeResponse::InputAudioBufferSpeechStarted {
-                                    audio_start_ms: 123,
-                                    item_id: "123".to_string(),
-                                };
+                            let serialized_data = OpenAIRealtimeResponse::InputAudioBufferSpeechStarted {
+                                audio_start_ms: 0,
+                                item_id: "item-1".to_string(),
+                            };
 
                             let frame = Frame::text(Payload::Bytes(
                                 Bytes::from(serde_json::to_string(&serialized_data).unwrap())
@@ -505,11 +509,10 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             ));
                             frame
                         } else if id.contains("speech_stopped") {
-                            let serialized_data =
-                                OpenAIRealtimeResponse::InputAudioBufferSpeechStopped {
-                                    audio_end_ms: 123,
-                                    item_id: "123".to_string(),
-                                };
+                            let serialized_data = OpenAIRealtimeResponse::InputAudioBufferSpeechStopped {
+                                audio_end_ms: 0,
+                                item_id: "item-1".to_string(),
+                            };
 
                             let frame = Frame::text(Payload::Bytes(
                                 Bytes::from(serde_json::to_string(&serialized_data).unwrap())
@@ -525,7 +528,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         // println!("Error in input: {}", s);
                         continue;
                     }
-                    _ => break,
+                    // Ignore other events (e.g., lifecycle or unrelated control events)
+                    _ => continue,
                 };
                 Some(frame)
             }
@@ -593,6 +597,22 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 println!("Audio buffer committed");
                             }
                             OpenAIRealtimeMessage::ResponseCreate { response } => {
+                                // Create a new response lifecycle and notify the client
+                                let rid = format!("resp-{}", random::<u32>());
+                                current_response_id = Some(rid.clone());
+                                let created = OpenAIRealtimeResponse::ResponseCreated {
+                                    response: serde_json::json!({
+                                        "id": rid,
+                                        "status": "in_progress",
+                                        "type": "message",
+                                    }),
+                                };
+                                let payload = Payload::Bytes(
+                                    Bytes::from(serde_json::to_string(&created).unwrap()).into(),
+                                );
+                                let frame = Frame::text(payload);
+                                ws.write_frame(frame).await?;
+
                                 if let Some(text) = response.instructions {
                                     node.send_output(
                                         DataId::from("text".to_string()),
@@ -628,8 +648,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             ws.write_frame(frame).await?;
         }
         if finished {
+            let rid = current_response_id.clone().unwrap_or_else(|| "auto".to_string());
             let serialized_data = OpenAIRealtimeResponse::ResponseDone {
-                response: serde_json::Value::Null,
+                response: serde_json::json!({
+                    "id": rid,
+                    "status": "completed",
+                }),
             };
 
             let payload = Payload::Bytes(

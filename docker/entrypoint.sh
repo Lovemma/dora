@@ -59,7 +59,8 @@ if [ -f "${DATAFLOW_FILE}" ]; then
       env NODE="$NODE" DATAFLOW_NAME="$DATAFLOW_NAME" sh -c '
         set +e
         while :; do
-          if dora logs "$DATAFLOW_NAME" "$NODE" 2>&1 | sed -u "s/^/[node:$NODE] /"; then
+          # Suppress Dora CLI error spam until the log file exists
+          if dora logs "$DATAFLOW_NAME" "$NODE" 2>/dev/null | sed -u "s/^/[node:$NODE] /"; then
             echo "[entrypoint] Log stream ended for node: $NODE (dataflow: $DATAFLOW_NAME). Retrying in 1s..." >&2
           else
             echo "[entrypoint] Logs unavailable yet for node: $NODE. Retrying in 1s..." >&2

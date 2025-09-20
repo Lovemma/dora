@@ -17,7 +17,7 @@ use dora_core::{
 use dora_message::{
     cli_to_coordinator::ControlRequest, common::LogMessage, coordinator_to_cli::ControlRequestReply,
 };
-use eyre::{Context, bail};
+use eyre::{Context, WrapErr, bail};
 use std::{
     net::{IpAddr, SocketAddr, TcpStream},
     path::PathBuf,

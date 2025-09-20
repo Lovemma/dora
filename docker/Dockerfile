@@ -16,7 +16,7 @@ COPY . /src
 # Build the WebSocket server and CLI (used by the server to orchestrate dataflows)
 RUN cargo build --release -p dora-openai-websocket \
  && cargo build --release -p dora-maas-client \
- && cargo install dora-cli --version 0.3.12 --locked
+ && cargo install --path binaries/cli --locked
 
 #############################
 # Runtime: Python + system deps
