@@ -3,7 +3,7 @@ use dora_core::descriptor::{CoreNodeKind, Descriptor, DescriptorExt, resolve_pat
 use dora_message::cli_to_coordinator::ControlRequest;
 use dora_message::common::LogMessage;
 use dora_message::coordinator_to_cli::ControlRequestReply;
-use eyre::Context;
+use eyre::{Context, WrapErr};
 use notify::event::ModifyKind;
 use notify::{Config, Event as NotifyEvent, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{

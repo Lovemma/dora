@@ -6,7 +6,8 @@ use dora_core::topics::{DORA_COORDINATOR_PORT_CONTROL_DEFAULT, DORA_COORDINATOR_
 #[cfg(feature = "tracing")]
 use dora_tracing::TracingBuilder;
 
-use eyre::Context;
+use eyre::{Context, WrapErr};
+use tracing::level_filters::LevelFilter;
 use std::net::{IpAddr, SocketAddr};
 use tokio::runtime::Builder;
 
@@ -39,7 +40,7 @@ impl Executable for Coordinator {
             if !self.quiet {
                 builder = builder.with_stdout("info");
             }
-            builder = builder.with_file(name, LevelFilter::INFO)?;
+            builder = builder.with_file(name, LevelFilter::from_level(tracing::Level::INFO))?;
             builder
                 .build()
                 .wrap_err("failed to set up tracing subscriber")?;

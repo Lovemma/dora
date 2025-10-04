@@ -112,6 +112,9 @@ pub enum OpenAIRealtimeMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         event_id: Option<String>,
     },
+    // Gracefully ignore unknown/unsupported client events
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -193,6 +196,8 @@ pub enum ContentPart {
 pub enum OpenAIRealtimeResponse {
     #[serde(rename = "error")]
     Error { error: ErrorDetails },
+    #[serde(rename = "response.created")]
+    ResponseCreated { response: serde_json::Value },
     #[serde(rename = "session.created")]
     SessionCreated { session: serde_json::Value },
     #[serde(rename = "session.updated")]
@@ -281,6 +286,8 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     
     if frame.opcode != OpCode::Text {
         println!("ERROR: Expected text frame, got {:?}", frame.opcode);
+        // Send proper close for protocol error
+        ws.write_frame(Frame::close(1002, b"Protocol error")).await?;
         return Err(WebSocketError::InvalidConnectionHeader);
     }
     
@@ -293,12 +300,15 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         Err(e) => {
             println!("ERROR: Failed to parse message: {}", e);
             println!("Raw payload: {}", String::from_utf8_lossy(&frame.payload));
+            // Unsupported/invalid initial data
+            ws.write_frame(Frame::close(1003, b"Unsupported data")).await?;
             return Err(WebSocketError::InvalidConnectionHeader);
         }
     };
     
     let OpenAIRealtimeMessage::SessionUpdate { session } = data else {
         println!("ERROR: Expected SessionUpdate, got different message type");
+        ws.write_frame(Frame::close(1003, b"Unsupported data")).await?;
         return Err(WebSocketError::InvalidConnectionHeader);
     };
     println!("Received SessionUpdate from client");
@@ -371,8 +381,15 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         }
     };
     
-    // Kill existing maas-client if any and spawn a new one with updated config
-    if let Some(pid_arc) = MAAS_PID.get() {
+    // Optionally spawn a dynamic maas-client. When using a static maas-client in the dataflow,
+    // set SPAWN_MAAS=0 (or "false") to skip spawning here and reuse the existing node.
+    let spawn_maas = std::env::var("SPAWN_MAAS")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(true);
+
+    if spawn_maas {
+        // Kill existing maas-client if any and spawn a new one with updated config
+        if let Some(pid_arc) = MAAS_PID.get() {
         let mut pid_guard = pid_arc.lock().await;
         if let Some(pid) = *pid_guard {
             println!("Killing existing maas-client with PID: {}", pid);
@@ -390,11 +407,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
         let config_path = std::env::var("MAAS_CONFIG_PATH")
             .unwrap_or_else(|_| "maas_mcp_browser_config.toml".to_string());
         
-        match tokio::process::Command::new("cargo")
-            .arg("run")
-            .arg("-p")
-            .arg("dora-maas-client")
-            .arg("--")
+        match tokio::process::Command::new("dora-maas-client")
             .arg("--name")
             .arg("maas-client")
             .env("MAAS_CONFIG_PATH", &config_path)
@@ -421,14 +434,50 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                 }
             }
             Err(e) => {
-                eprintln!("⚠️ Failed to spawn maas-client: {}", e);
+                eprintln!("⚠️ Failed to spawn maas-client from PATH: {}", e);
+                eprintln!("   Falling back to 'cargo run -p dora-maas-client' (dev flow)");
+                match tokio::process::Command::new("cargo")
+                    .arg("run")
+                    .arg("-p")
+                    .arg("dora-maas-client")
+                    .arg("--")
+                    .arg("--name")
+                    .arg("maas-client")
+                    .env("MAAS_CONFIG_PATH", &config_path)
+                    .spawn() {
+                    Ok(mut child) => {
+                        if let Some(pid) = child.id() {
+                            println!("✅ Fallback cargo run: maas-client PID: {}", pid);
+                            println!("   Using config: {}", config_path);
+                            *pid_guard = Some(pid);
+                            tokio::spawn(async move {
+                                match child.wait().await {
+                                    Ok(status) => {
+                                        if !status.success() {
+                                            eprintln!("⚠️ maas-client (cargo run) exited with status: {:?}", status);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("⚠️ Error waiting for maas-client (cargo run): {}", e);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    Err(e2) => {
+                        eprintln!("❌ Failed to spawn maas-client via cargo run as well: {}", e2);
+                    }
+                }
             }
         }
         
-        // Wait for maas-client to be ready before sending session acknowledgments
-        println!("⏳ Waiting 10 seconds for maas-client to connect to dataflow...");
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-        println!("✅ maas-client should now be ready");
+            // Wait for maas-client to be ready before sending session acknowledgments
+            println!("⏳ Waiting 10 seconds for maas-client to connect to dataflow...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            println!("✅ maas-client should now be ready");
+        }
+    } else {
+        println!("SPAWN_MAAS disabled; using existing static maas-client in dataflow");
     }
     
     // NOW send session acknowledgments after maas-client is ready
@@ -491,6 +540,13 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
     let mut text_chunks_sent = 0;
     let mut last_activity = std::time::Instant::now();
     let mut should_send_completion = false; // Track if we need to send completion events after audio
+    let mut response_created_sent = false; // Ensure response.created is sent once per turn
+    let mut response_active = false; // Only emit deltas while a response is active
+    // Track if we've replied to a Close frame
+    let mut close_replied = false;
+    // Deduplicate greeting instructions to avoid repeated forwards
+    let mut last_greeting: Option<String> = None;
+    let mut last_greet_time: Option<std::time::Instant> = None;
     loop {
         let event_fut = events.recv_async().map(Either::Left);
         let frame_fut = ws.read_frame().map(Either::Right);
@@ -513,7 +569,46 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             text_chunks_sent += 1;
                             
                             // Determine the source node and log appropriately with full pipeline context
-                            if id.contains("transcription") {
+                            if id.contains("segment_complete") {
+                                // PrimeSpeech completion or error
+                                if str == "error" {
+                                    // Try to surface error details from metadata
+                                    let mut err = String::from("unknown");
+                                    let mut stage = String::from("unknown");
+                                    if let Some(param) = metadata.parameters.get("error") {
+                                        if let dora_node_api::Parameter::String(s) = param { err = s.clone(); }
+                                    }
+                                    if let Some(param) = metadata.parameters.get("error_stage") {
+                                        if let dora_node_api::Parameter::String(s) = param { stage = s.clone(); }
+                                    }
+                                    println!("┌─ [{}ms] ❌ TTS ERROR", time_since_last);
+                                    println!("│  Node: {} → WebSocket", id);
+                                    println!("│  Stage: {}", stage);
+                                    println!("│  Error: {}", err);
+                                    if let Some(param) = metadata.parameters.get("segment_index") {
+                                        if let dora_node_api::Parameter::Integer(i) = param { println!("│  Segment: {}", i); }
+                                    }
+                                    println!("└─ ⚠️  Forwarding 'error' to client for visibility");
+                                } else {
+                                    let mut remaining: i64 = -1;
+                                    if let Some(param) = metadata.parameters.get("segments_remaining") {
+                                        if let dora_node_api::Parameter::Integer(i) = param { remaining = *i; }
+                                    }
+                                    println!("┌─ [{}ms] ✅ TTS SEGMENT COMPLETE", time_since_last);
+                                    println!("│  Node: {} → WebSocket", id);
+                                    println!("│  Status: '{}'", str);
+                                    println!("│  Segments remaining: {}", remaining);
+                                    println!("└─ 📤 Notifying client of completion");
+                                }
+                            } else if id.contains("log") {
+                                // Log channel (e.g., from PrimeSpeech)
+                                println!("┌─ [{}ms] 🪵 NODE LOG", time_since_last);
+                                println!("│  Source: {}", id);
+                                println!("│  Message: {}", str);
+                                println!("└─ ▶️  Not forwarding node logs to client");
+                                // Skip forwarding of debug logs to client to avoid protocol noise
+                                continue;
+                            } else if id.contains("transcription") {
                                 println!("┌─ [{}ms] 🎙️  ASR OUTPUT", time_since_last);
                                 println!("│  Node: {} → WebSocket", id);
                                 println!("│  Text: '{}'", str.chars().take(100).collect::<String>());
@@ -533,18 +628,45 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 println!("└─ 📤 Forwarding to client");
                             }
                             
-                            let serialized_data =
+                            // Ensure a response is active before sending any deltas
+                            if !response_active {
+                                let created = OpenAIRealtimeResponse::ResponseCreated {
+                                    response: serde_json::json!({
+                                        "id": "123",
+                                        "status": "in_progress",
+                                        "output": []
+                                    }),
+                                };
+                                let created_frame = Frame::text(Payload::Bytes(
+                                    Bytes::from(serde_json::to_string(&created).unwrap()).into(),
+                                ));
+                                ws.write_frame(created_frame).await?;
+                                println!("✅ Sent response.created (id=123) before transcript/text delta");
+                                response_created_sent = true;
+                                response_active = true;
+                            }
+
+                            // Route: ASR transcription -> transcript delta; LLM text -> text delta
+                            let serialized_data = if id.contains("transcription") {
                                 OpenAIRealtimeResponse::ResponseAudioTranscriptDelta {
                                     response_id: "123".to_string(),
                                     item_id: "123".to_string(),
                                     output_index: 123,
                                     content_index: 123,
                                     delta: str.to_string(),
-                                };
+                                }
+                            } else {
+                                OpenAIRealtimeResponse::ResponseTextDelta {
+                                    response_id: "123".to_string(),
+                                    item_id: "123".to_string(),
+                                    output_index: 123,
+                                    content_index: 123,
+                                    delta: str.to_string(),
+                                }
+                            };
 
                             let frame = Frame::text(Payload::Bytes(
-                                Bytes::from(serde_json::to_string(&serialized_data).unwrap())
-                                    .into(),
+                                Bytes::from(serde_json::to_string(&serialized_data).unwrap()).into(),
                             ));
                             frame
                         } else if id.contains("audio") {
@@ -583,7 +705,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             
                             // Handle audio data - it might be a list/array
                             let audio_data = if let Ok(vec_data) = into_vec::<f32>(&data) {
-                                println!("   ✓ Converted {} audio samples using into_vec", vec_data.len());
+                                println!("   ✓ Extracted {} audio samples using into_vec", vec_data.len());
                                 vec_data
                             } else {
                                 // Try different array types
@@ -628,7 +750,7 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             };
                             
                             // For TTS, process immediately without buffering for low latency
-                            // Create a resampler for this chunk
+                            // Create a resampler for this chunk (use source sample_rate from metadata if present)
                             let params = SincInterpolationParameters {
                                 sinc_len: 64,  // Lower for faster processing
                                 f_cutoff: 0.95,
@@ -636,20 +758,47 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                                 oversampling_factor: 128,
                                 window: WindowFunction::Blackman,
                             };
-                            
+                            // Determine source sample rate (fallback to 32000) and resample to 24000
+                            let src_rate: f64 = if let Some(param) = metadata.parameters.get("sample_rate") {
+                                match param { dora_node_api::Parameter::Integer(i) => (*i as f64).max(1.0), _ => 32000.0 }
+                            } else { 32000.0 };
+                            let dst_rate: f64 = 24000.0;
+                            let ratio = (dst_rate / src_rate).max(1e-6);
+                            println!("   ℹ️  Resampling {} -> {} (ratio {:.5})", src_rate as i64, dst_rate as i64, ratio);
+
                             let mut resampler = SincFixedIn::<f32>::new(
-                                24000.0 / 32000.0,  // Resample ratio (3/4)
+                                ratio,
                                 2.0,
                                 params,
-                                audio_data.len(),   // Exact input size
+                                audio_data.len().max(1),   // Avoid zero-sized buffer
                                 1,
                             ).expect("Failed to create TTS resampler");
-                            
+
                             let input = vec![audio_data];
                             let output = resampler.process(&input, None).expect("TTS resampling failed");
                             let resampled = output[0].clone();
-                            
+                            println!("   ✓ Resampled {} → {} samples", input[0].len(), resampled.len());
+
                             let data = convert_f32_to_pcm16(&resampled);
+                            println!("   ✓ Encoded PCM16 bytes: {}", data.len());
+
+                            // Ensure we notify the client a response was created before first delta
+                            if !response_created_sent {
+                                let created = OpenAIRealtimeResponse::ResponseCreated {
+                                    response: serde_json::json!({
+                                        "id": "123",
+                                        "status": "in_progress",
+                                        "output": []
+                                    }),
+                                };
+                                let created_frame = Frame::text(Payload::Bytes(
+                                    Bytes::from(serde_json::to_string(&created).unwrap()).into(),
+                                ));
+                                ws.write_frame(created_frame).await?;
+                                println!("✅ Sent response.created (id=123)");
+                                response_created_sent = true;
+                                response_active = true;
+                            }
                             let serialized_data = OpenAIRealtimeResponse::ResponseAudioDelta {
                                 response_id: "123".to_string(),
                                 item_id: "123".to_string(),
@@ -738,10 +887,19 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                         }
                     }
                     dora_node_api::Event::Error(_) => {
-                        // println!("Error in input: {}", s);
+                        // Keep the WebSocket open on upstream errors; just skip this event
                         continue;
                     }
-                    _ => break,
+                    dora_node_api::Event::InputClosed { id } => {
+                        // Do NOT close the WebSocket when a single input closes (e.g., text).
+                        // This event only indicates no more items for that input; the session continues.
+                        println!("ℹ️  Dora input closed: {:?}", id);
+                        continue;
+                    }
+                    _ => {
+                        // Ignore other event types to keep the connection alive
+                        continue;
+                    },
                 };
                 Some(frame)
             }
@@ -749,10 +907,39 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             future::Either::Right(Ok(frame)) => {
                 // println!("Received WebSocket frame, opcode: {:?}, payload size: {}", frame.opcode, frame.payload.len());
                 match frame.opcode {
-                    OpCode::Close => break,
+                    OpCode::Close => {
+                        // Echo close and break the loop
+                        if !close_replied {
+                            ws.write_frame(Frame::close(1000, b"Normal closure")).await?;
+                            close_replied = true;
+                        }
+                        break
+                    },
+                    OpCode::Ping => {
+                        // Respond to ping with pong to keep the connection alive
+                        let pong = Frame::pong(frame.payload);
+                        ws.write_frame(pong).await?;
+                        continue;
+                    }
+                    OpCode::Pong => {
+                        // Ignore
+                        continue;
+                    }
                     OpCode::Text | OpCode::Binary => {
-                        let data: OpenAIRealtimeMessage =
-                            serde_json::from_slice(&frame.payload).unwrap();
+                        // Parse client JSON safely; ignore unknown or malformed messages
+                        let parsed: Result<OpenAIRealtimeMessage, _> =
+                            serde_json::from_slice(&frame.payload);
+                        let data = match parsed {
+                            Ok(d) => d,
+                            Err(e) => {
+                                println!(
+                                    "⚠️  Ignoring malformed client message ({} bytes): {}",
+                                    frame.payload.len(), e
+                                );
+                                // Keep the connection open; move to next iteration
+                                continue;
+                            }
+                        };
                         // println!("Parsed WebSocket message type: {:?}", std::mem::discriminant(&data));
 
                         match data {
@@ -818,32 +1005,44 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                             OpenAIRealtimeMessage::ResponseCreate { response } => {
                                 println!("📨 Received ResponseCreate from client with instructions");
                                 if let Some(text) = response.instructions {
-                                    println!("🎯 Forwarding greeting instructions to maas-client: {}", text);
-                                    // Mark that we're expecting greeting audio from TTS
-                                    // Segment counting now handled via metadata
-                                    match node.send_output(
-                                        DataId::from("text".to_string()),
-                                        Default::default(),
-                                        text.into_arrow(),
-                                    ) {
-                                        Ok(_) => {
-                                            println!("✅ Successfully sent greeting to maas-client");
-                                            println!("⏳ Waiting for LLM response and TTS audio...");
-                                            // Don't send ResponseDone yet - wait for audio to arrive
-                                        }
-                                        Err(e) => {
-                                            eprintln!("⚠️ Failed to send greeting to maas-client: {:?}", e);
-                                            eprintln!("   This might happen if maas-client isn't fully connected yet");
-                                            // Segment counting now handled via metadata
-                                            // Don't crash, just continue - maas-client might connect later
+                                    // Throttle duplicate greetings: ignore if same as the last within 3s
+                                    let now = std::time::Instant::now();
+                                    let is_dup = last_greeting.as_ref().map(|g| g == &text).unwrap_or(false)
+                                        && last_greet_time.map(|t| now.duration_since(t).as_millis() < 3000).unwrap_or(false);
+                                    if is_dup {
+                                        println!("↩️  Ignoring duplicate greeting within 3s window");
+                                    } else {
+                                        println!("🎯 Forwarding greeting instructions to maas-client: {}", text);
+                                        match node.send_output(
+                                            DataId::from("text".to_string()),
+                                            Default::default(),
+                                            text.clone().into_arrow(),
+                                        ) {
+                                            Ok(_) => {
+                                                last_greeting = Some(text);
+                                                last_greet_time = Some(now);
+                                                println!("✅ Successfully sent greeting to maas-client");
+                                                println!("⏳ Waiting for LLM response and TTS audio...");
+                                            }
+                                            Err(e) => {
+                                                eprintln!("⚠️ Failed to send greeting to maas-client: {:?}", e);
+                                                eprintln!("   This might happen if maas-client isn't fully connected yet");
+                                            }
                                         }
                                     }
                                 }
                             }
+                            OpenAIRealtimeMessage::Other => {
+                                // Unknown/unsupported client message type; skip
+                                continue;
+                            }
                             _ => {}
                         }
                     }
-                    _ => break,
+                    _ => {
+                        // Ignore other client message variants; keep the connection open
+                        continue;
+                    },
                 }
                 None
             }
@@ -860,28 +1059,12 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
             
             ws.write_frame(frame).await?;
             
-            // If question ended, send commit and response.create to trigger LLM
+            // If question ended, do NOT send client-origin events back to the client.
+            // We already forward ASR text to the MaaS client, which triggers the LLM.
+            // Sending `input_audio_buffer.committed` or `response.create` from server→client
+            // is invalid for the OpenAI Realtime protocol and can cause disconnects.
             if is_question_ended {
-                println!("📤 Sending commit and response.create after question_ended");
-                
-                // Send input_audio_buffer.committed
-                let commit_msg = serde_json::json!({
-                    "type": "input_audio_buffer.committed",
-                    "item_id": "123",
-                    "audio": ""
-                });
-                let commit_frame = Frame::text(Payload::Bytes(
-                    Bytes::from(serde_json::to_string(&commit_msg).unwrap()).into(),
-                ));
-                ws.write_frame(commit_frame).await?;
-                
-                // Trigger response creation (this is what makes server_vad work)
-                // The server needs to automatically create a response when speech ends
-                println!("🤖 Triggering LLM response after speech ended");
-                
-                // Send the user's audio to the LLM by committing and creating response
-                // The audio has already been forwarded to ASR for transcription
-                // Now we need to tell the system to generate a response
+                println!("ℹ️  Question ended detected; relying on server-side LLM trigger (no client-origin events sent)");
             }
             
             // Send completion events immediately after audio frame if this was the last segment
@@ -931,13 +1114,18 @@ async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {
                 ws.write_frame(response_done_frame).await?;
                 println!("✅ Sent response.done - conversation complete");
                 
-                // Reset flag
+                // Reset flags; mark response as closed to suppress late deltas
                 should_send_completion = false;
+                response_created_sent = false;
+                response_active = false;
             }
         }
     }
     
-    // Connection closed
+    // Connection closed - send a proper close if we haven't yet
+    if !close_replied {
+        let _ = ws.write_frame(Frame::close(1000, b"Normal closure")).await;
+    }
     println!("🔌 WebSocket client disconnected");
 
     Ok(())

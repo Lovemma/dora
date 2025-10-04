@@ -4,16 +4,41 @@ import re
 import unicodedata
 from builtins import str as unicode
 
-import wordsegment
-from g2p_en import G2p
-from g2p_en.expand import normalize_numbers
-from nltk.tokenize import TweetTokenizer
+"""
+English text frontend helpers (duplicate for tts_models path).
+
+Guard optional deps so importing this module does not crash when English is not
+used. A clear error is raised only if English g2p is invoked without deps.
+"""
+
+try:
+    import wordsegment  # type: ignore
+except Exception:
+    wordsegment = None
+
+try:
+    from g2p_en import G2p as _BaseG2p  # type: ignore
+    from g2p_en.expand import normalize_numbers  # type: ignore
+except Exception:
+    class _BaseG2p:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("g2p_en is required for English text processing. Install 'g2p_en'.")
+
+    def normalize_numbers(text: str) -> str:
+        return text
+
+try:
+    from nltk.tokenize import TweetTokenizer  # type: ignore
+    from nltk import pos_tag  # type: ignore
+except Exception:
+    TweetTokenizer = None
+    def pos_tag(tokens):
+        return [(t, "NN") for t in tokens]
 
 from moyoyo_tts.text.symbols import punctuation
 from moyoyo_tts.text.symbols2 import symbols
 
-word_tokenize = TweetTokenizer().tokenize
-from nltk import pos_tag
+word_tokenize = (TweetTokenizer().tokenize if TweetTokenizer else (lambda s: s.split()))
 
 current_file_path = os.path.dirname(__file__)
 CMU_DICT_PATH = os.path.join(current_file_path, "cmudict.rep")
@@ -247,11 +272,15 @@ def text_normalize(text):
     return text
 
 
-class en_G2p(G2p):
+class en_G2p(_BaseG2p):
     def __init__(self):
         super().__init__()
         # 分词初始化
-        wordsegment.load()
+        if wordsegment is not None:
+            try:
+                wordsegment.load()
+            except Exception:
+                pass
 
         # 扩展过时字典, 添加姓名字典
         self.cmu = get_dict()
@@ -269,7 +298,10 @@ class en_G2p(G2p):
     def __call__(self, text):
         # tokenization
         words = word_tokenize(text)
-        tokens = pos_tag(words)  # tuples of (word, tag)
+        try:
+            tokens = pos_tag(words)  # tuples of (word, tag)
+        except Exception:
+            tokens = [(w, "NN") for w in words]
 
         # steps
         prons = []
@@ -347,7 +379,7 @@ class en_G2p(G2p):
             return phones
 
         # 尝试进行分词，应对复合词
-        comps = wordsegment.segment(word.lower())
+        comps = wordsegment.segment(word.lower()) if wordsegment is not None else [word.lower()]
 
         # 无法分词的送回去预测
         if len(comps)==1:

@@ -74,9 +74,10 @@ pub fn run_build_command(
             }
         });
 
-        let exit_status = cmd
-            .status()
-            .wrap_err_with(|| format!("failed to run `{build}`"))?;
+        // Wait for the spawned process to finish instead of running it again.
+        let exit_status = child
+            .wait()
+            .wrap_err_with(|| format!("failed to wait for `{build}`"))?;
         if !exit_status.success() {
             return Err(eyre!("build command `{build_line}` returned {exit_status}"));
         }

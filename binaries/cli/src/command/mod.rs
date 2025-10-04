@@ -66,6 +66,7 @@ pub enum Command {
 fn default_tracing() -> eyre::Result<()> {
     #[cfg(feature = "tracing")]
     {
+        use eyre::WrapErr;
         use dora_tracing::TracingBuilder;
 
         TracingBuilder::new("dora-cli")

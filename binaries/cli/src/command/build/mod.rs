@@ -53,7 +53,7 @@ use dora_core::{
     topics::{DORA_COORDINATOR_PORT_CONTROL_DEFAULT, LOCALHOST},
 };
 use dora_message::{BuildId, descriptor::NodeSource};
-use eyre::Context;
+use eyre::{Context, WrapErr};
 use std::{collections::BTreeMap, net::IpAddr};
 
 use super::{Executable, default_tracing};

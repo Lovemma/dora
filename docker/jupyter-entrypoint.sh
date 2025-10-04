@@ -24,6 +24,5 @@ fi
 PORT="${JUPYTER_PORT:-8888}"
 echo "[jupyter] Starting JupyterLab on 0.0.0.0:${PORT}"
 exec jupyter lab --ip=0.0.0.0 --port="${PORT}" --no-browser \
-  --ServerApp.allow_origin='*' --ServerApp.allow_remote_access=True \
+  --ServerApp.allow_origin='*' --ServerApp.allow_remote_access=True --ServerApp.allow_root=True \
   ${EXTRA_ARGS}
-

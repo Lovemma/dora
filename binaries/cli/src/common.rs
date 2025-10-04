@@ -6,7 +6,7 @@ use dora_message::{
     cli_to_coordinator::ControlRequest,
     coordinator_to_cli::{ControlRequestReply, DataflowList, DataflowResult},
 };
-use eyre::{Context, ContextCompat, bail};
+use eyre::{Context, ContextCompat, WrapErr, bail};
 use std::{
     env::current_dir,
     net::SocketAddr,

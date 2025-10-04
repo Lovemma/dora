@@ -14,7 +14,7 @@ use crate::{
 use dora_daemon::{Daemon, LogDestination, flume};
 #[cfg(feature = "tracing")]
 use dora_tracing::TracingBuilder;
-use eyre::Context;
+use eyre::{Context, WrapErr};
 use tokio::runtime::Builder;
 
 #[derive(Debug, clap::Args)]

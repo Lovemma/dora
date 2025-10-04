@@ -4,7 +4,7 @@ use communication_layer_request_reply::TcpRequestReplyConnection;
 use dora_core::descriptor::DescriptorExt;
 use dora_core::{descriptor::Descriptor, topics::DORA_COORDINATOR_PORT_CONTROL_DEFAULT};
 use dora_message::{cli_to_coordinator::ControlRequest, coordinator_to_cli::ControlRequestReply};
-use eyre::{Context, bail};
+use eyre::{Context, WrapErr, bail};
 use std::{
     io::{IsTerminal, Write},
     net::SocketAddr,

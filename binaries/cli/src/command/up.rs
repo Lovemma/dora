@@ -3,7 +3,7 @@ use super::{Executable, default_tracing};
 use crate::{LOCALHOST, common::connect_to_coordinator};
 use dora_core::topics::DORA_COORDINATOR_PORT_CONTROL_DEFAULT;
 use dora_message::{cli_to_coordinator::ControlRequest, coordinator_to_cli::ControlRequestReply};
-use eyre::{Context, ContextCompat, bail};
+use eyre::{Context, ContextCompat, WrapErr, bail};
 use std::path::PathBuf;
 use std::{fs, net::SocketAddr, path::Path, process::Command, time::Duration};
 

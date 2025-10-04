@@ -57,7 +57,8 @@ echo "[ASR] Checking ASR Python deps..."
 run "python -c \"import importlib,sys; mods=['funasr_onnx','onnxruntime','pywhispercpp']; g=globals(); imported=[]; errors={}; code='for m in mods:\\n try:\\n  g[m]=importlib.import_module(m); imported.append(m)\\n except Exception as e:\\n  errors[m]=str(e)'; exec(code); print('Imported:', imported); print('Errors:', errors); print('providers:', g['onnxruntime'].get_available_providers() if 'onnxruntime' in g else 'n/a')\""
 
 echo "[ASR] Converting FunASR models to ONNX (if needed)..."
-run "python /opt/dora/examples/model-manager/convert_to_onnx.py --convert all || true"
+# Avoid interactive overwrite prompts in non-interactive runs: answer 'no' for each model
+run "printf 'no\nno\n' | python /opt/dora/examples/model-manager/convert_to_onnx.py --convert all || true"
 
 echo "[ASR] Running basic ASR test..."
 run "cd /opt/dora/examples/setup-new-chatbot/asr-validation && python test_basic_asr.py"

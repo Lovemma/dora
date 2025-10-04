@@ -5,7 +5,7 @@ use clap::Args;
 use communication_layer_request_reply::TcpRequestReplyConnection;
 use dora_core::topics::{DORA_COORDINATOR_PORT_CONTROL_DEFAULT, LOCALHOST};
 use dora_message::{cli_to_coordinator::ControlRequest, coordinator_to_cli::ControlRequestReply};
-use eyre::{Context, Result, bail};
+use eyre::{Context, WrapErr, Result, bail};
 use uuid::Uuid;
 
 #[derive(Debug, Args)]

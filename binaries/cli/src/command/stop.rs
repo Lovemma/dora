@@ -5,7 +5,7 @@ use dora_core::topics::{DORA_COORDINATOR_PORT_CONTROL_DEFAULT, LOCALHOST};
 use dora_message::cli_to_coordinator::ControlRequest;
 use dora_message::coordinator_to_cli::ControlRequestReply;
 use duration_str::parse;
-use eyre::{Context, bail};
+use eyre::{Context, WrapErr, bail};
 use std::net::IpAddr;
 use std::time::Duration;
 use uuid::Uuid;

@@ -18,7 +18,9 @@ services:
       - ${MODELS_DIR:?set MODELS_DIR}:/tmp/home/.dora/models
       - ${HF_CACHE:?set HF_CACHE}:/tmp/home/.cache/huggingface
 
+  # Default server profile: websocket browser example
   server:
+    profiles: [browser]
     image: dora-voicechat:latest
     ports:
       - "8123:8123"
@@ -27,6 +29,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8123
+      SKIP_DORA_BUILD: "0"
       # Force FunASR for zh, avoid Whisper model download at runtime
       ASR_ENGINE: funasr
       FUNASR_DISABLE_UPDATE: "true"
@@ -48,6 +51,65 @@ services:
       - downloader
     # restart: unless-stopped
 
+  # OpenAI 0905 example
+  server_openai0905:
+    profiles: [openai0905]
+    image: dora-voicechat:latest
+    ports:
+      - "8123:8123"
+    env_file:
+      - ../.env
+    # Use the repo's entrypoint to pick up script tweaks without rebuilding
+    entrypoint: ["/opt/dora/docker/entrypoint.sh"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8123
+      RUST_LOG: info
+      SKIP_DORA_BUILD: "0"
+      MAAS_CONFIG_PATH: /opt/dora/examples/chatbot-openai-0905/maas_mcp_browser_config_zh.local.toml
+      # Give dataflow a stable name and tail only the WebSocket server logs
+      DATAFLOW_NAME: chatflow0905
+      TAIL_NODE_LOGS: wserver
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Ensure TTS models are available to PrimeSpeech
+      PRIMESPEECH_MODEL_DIR: /root/.dora/models/primespeech
+      EXAMPLE_DIR: /opt/dora/examples/chatbot-openai-0905
+      DATAFLOW_FILE: chatbot-staticflow.yml
+      WS_SERVER_NAME: wserver
+      # We run maas-client as a static node in the dataflow; prevent the WS server from spawning its own
+      SPAWN_MAAS: "0"
+    volumes:
+      - ${REPO_DIR:-..}:/opt/dora
+      - ${MODELS_DIR:?set MODELS_DIR}:/root/.dora/models
+      - ${HF_CACHE:?set HF_CACHE}:/root/.cache/huggingface
+      # Persist Playwright MCP browser data (cookies, storage, screenshots)
+      - browser-data:/tmp/browser-data
+    depends_on:
+      - downloader
+
+  # Alibaba Cloud 0908 example
+  server_alicloud0908:
+    profiles: [alicloud0908]
+    image: dora-voicechat:latest
+    ports:
+      - "8123:8123"
+    env_file:
+      - ../.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8123
+      RUST_LOG: info
+      SKIP_DORA_BUILD: "1"
+      EXAMPLE_DIR: /opt/dora/examples/chatbot-alicloud-0908
+      DATAFLOW_FILE: chatbot-staticflow.yml
+      WS_SERVER_NAME: wserver
+    volumes:
+      - ${REPO_DIR:-..}:/opt/dora
+      - ${MODELS_DIR:?set MODELS_DIR}:/root/.dora/models
+      - ${HF_CACHE:?set HF_CACHE}:/root/.cache/huggingface
+    depends_on:
+      - downloader
+
   notebook:
     image: dora-voicechat:latest
     env_file:
@@ -66,3 +128,6 @@ services:
       - ${REPO_DIR:-..}:/opt/dora
       - ${MODELS_DIR:?set MODELS_DIR}:/root/.dora/models:ro
       - ${HF_CACHE:?set HF_CACHE}:/root/.cache/huggingface
+
+volumes:
+  browser-data:
