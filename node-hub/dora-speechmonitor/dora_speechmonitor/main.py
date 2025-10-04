@@ -168,15 +168,13 @@ def main():
             # Send real-time speech probability
             node.send_output(
                 "speech_probability",
-                pa.array([speech_probability]),
-                metadata={"timestamp": time.time()}
+                pa.array([speech_probability])
             )
             
             # Send is_speaking status
             node.send_output(
                 "is_speaking",
-                pa.array([state_machine.state == SpeechState.SPEAKING]),
-                metadata={"timestamp": time.time()}
+                pa.array([state_machine.state == SpeechState.SPEAKING])
             )
             
             # State machine processing
@@ -203,11 +201,7 @@ def main():
                     # Send speech_started event
                     node.send_output(
                         "speech_started",
-                        pa.array([last_speech_start_time]),
-                        metadata={
-                            "task_id": state_machine.task_id,
-                            "segment": speech_segment_count
-                        }
+                        pa.array([last_speech_start_time])
                     )
                     send_log(node, "INFO", f"Speech STARTED (segment #{speech_segment_count})")
                     
@@ -255,12 +249,7 @@ def main():
                         # Send speech_ended event
                         node.send_output(
                             "speech_ended",
-                            pa.array([speech_end_time]),
-                            metadata={
-                                "task_id": state_machine.task_id,
-                                "segment": speech_segment_count,
-                                "duration": speech_end_time - last_speech_start_time if last_speech_start_time else 0
-                            }
+                            pa.array([speech_end_time])
                         )
                         
                         # Send complete audio segment
@@ -280,15 +269,7 @@ def main():
                             # Send audio segment
                             node.send_output(
                                 "audio_segment",
-                                pa.array(audio_frames),
-                                metadata={
-                                    "task_id": state_machine.task_id,
-                                    "session_id": state_machine.session_id,
-                                    "answer_id": voice_task.answer_id,
-                                    "duration_ms": audio_duration_ms,
-                                    "is_over_threshold": is_over_threshold,
-                                    "segment": speech_segment_count
-                                }
+                                pa.array(audio_frames)
                             )
                             
                             duration_s = audio_duration_ms / 1000
@@ -319,11 +300,7 @@ def main():
                             # Long silence detected - user question is complete
                             node.send_output(
                                 "question_ended",
-                                pa.array([time.time()]),
-                                metadata={
-                                    "silence_duration_ms": silence_since_speech_ms,
-                                    "last_segment": speech_segment_count
-                                }
+                                pa.array([time.time()])
                             )
                             send_log(node, "INFO", f"Question ENDED (silence: {silence_since_speech_ms:.0f}ms)")
                             question_end_sent = True  # Prevent repeated signals
@@ -338,13 +315,7 @@ def main():
                     # Send audio segment
                     node.send_output(
                         "audio_segment",
-                        pa.array(audio_frames),
-                        metadata={
-                            "task_id": state_machine.task_id,
-                            "forced": True,
-                            "duration_ms": current_duration_ms,
-                            "segment": speech_segment_count
-                        }
+                        pa.array(audio_frames)
                     )
                     
                     # Reset buffers

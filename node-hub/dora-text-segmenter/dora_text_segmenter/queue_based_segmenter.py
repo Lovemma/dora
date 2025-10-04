@@ -7,46 +7,58 @@ Queue-based Text Segmenter
 4. Skip segments with only punctuation or numbers
 """
 
+import os
 import time
 import re
-import uuid
 import pyarrow as pa
 from dora import Node
 from collections import deque
 
-def should_skip_segment(text):
-    """Check if segment should be skipped (only punctuation or numbers)"""
+def should_skip_segment(text, punctuation_marks="。！？.!?"):
+    """Check if segment should be skipped (only punctuation or numbers)
+
+    Args:
+        text: Text segment to check
+        punctuation_marks: String of punctuation marks to consider (configurable via env var)
+    """
     # Remove whitespace for checking
     text_stripped = text.strip()
-    
+
     # Skip if empty
     if not text_stripped:
         return True
-    
-    # Pattern: only punctuation, numbers, whitespace, or common symbols
-    # Includes Chinese and English punctuation
-    skip_pattern = r'^[\s\d\.\,\!\?\;\:\-\—\~\@\#\$\%\^\&\*\(\)\[\]\{\}\_\+\=\|\\\/\<\>\"\'\`。，！？；：、""''（）【】《》「」『』〈〉〔〕……——～·]+$'
-    
+
+    # Build pattern dynamically from configured punctuation marks
+    # Escape special regex characters in punctuation marks
+    escaped_punctuation = re.escape(punctuation_marks)
+
+    # Pattern: only whitespace + numbers + configured punctuation marks
+    # This allows filtering based on user-configured punctuation
+    skip_pattern = f'^[\\s\\d{escaped_punctuation}]+$'
+
     if re.match(skip_pattern, text_stripped):
-        print(f"[Segmenter] Skipping punctuation/number only segment: '{text_stripped}'")
         return True
-    
+
     return False
 
 def main():
     node = Node("text-segmenter")
-    
+
+    # Configuration from environment
+    punctuation_marks = os.getenv("PUNCTUATION_MARKS", "。！？.!?")
+    print(f"[Segmenter] Configured punctuation marks for filtering: '{punctuation_marks}'")
+
     # Simple queue for segments
     segment_queue = deque()
     is_sending = False
-    
-    # Segment counter and conversation tracking
+
+    # Segment counter
     segment_counter = 0  # Number of segments in queue
-    conversation_id = None  # Reset when counter reaches zero
-    
-    print("[Segmenter] Started - Queue-based segmenter with segment counting")
-    print("[Segmenter] Will send first segment immediately, then wait for TTS completion")
-    print("[Segmenter] Will skip segments with only punctuation or numbers")
+
+    # Track current question_id for smart reset
+    current_question_id = None
+
+    print("[Segmenter] Started")
     
     for event in node:
         if event["type"] == "INPUT":
@@ -54,26 +66,28 @@ def main():
                 # Received text from LLM
                 text = event["value"][0].as_py()
                 metadata = event.get("metadata", {})
-                
-                print(f"[Segmenter] Received text chunk: {len(text)} chars")
-                
-                # If counter is 0, start new conversation
-                if segment_counter == 0:
-                    conversation_id = str(uuid.uuid4())[:8]
-                    print(f"[Segmenter] 🆕 New conversation: {conversation_id}")
-                
+
+                # Extract question_id from metadata (passed from ASR via LLM)
+                question_id = metadata.get("question_id", None)
+
+                # Update current question_id
+                if question_id is not None:
+                    current_question_id = question_id
+
+                # ALWAYS queue incoming text - don't filter here
+                # Filtering only happens when reset event is received
                 # Check if we should skip this segment
-                if not should_skip_segment(text):
-                    # Valid segment - add to queue
+                if not should_skip_segment(text, punctuation_marks):
+                    # Valid segment - add to queue with question_id
                     segment_queue.append({
                         "text": text,
                         "metadata": metadata,
+                        "question_id": question_id,
                     })
-                    
+
                     # Increase counter by 1 (in reality, segmenter might split text further)
                     # For now, we're treating each incoming text as one segment
                     segment_counter += 1
-                    print(f"[Segmenter] Queued segment, counter: {segment_counter}")
                 
                 # Try to send a segment if not currently sending
                 # This happens whether we queued the current segment or skipped it
@@ -90,23 +104,14 @@ def main():
                         pa.array([segment["text"]]),
                         metadata={
                             "segments_remaining": segment_counter,  # After decrease
-                            "conversation_id": conversation_id,
                             **segment["metadata"]
                         }
                     )
-                    
-                    print(f"[Segmenter] → Sent segment: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
-                    print(f"[Segmenter]   Segments remaining: {segment_counter}")
+
                     is_sending = True
-                    
-                    # Reset conversation if counter reaches zero
-                    if segment_counter == 0:
-                        print(f"[Segmenter] ✅ Conversation {conversation_id} complete")
-                        conversation_id = None
                     
             elif event["id"] == "tts_complete":
                 # TTS completed a segment
-                print(f"[Segmenter] TTS completed, queue size: {len(segment_queue)}")
                 
                 # Send next segment if available
                 if segment_queue:
@@ -120,37 +125,63 @@ def main():
                         pa.array([segment["text"]]),
                         metadata={
                             "segments_remaining": segment_counter,  # After decrease
-                            "conversation_id": conversation_id,
                             **segment["metadata"]
                         }
                     )
-                    
-                    print(f"[Segmenter] → Sent segment: '{segment['text'][:30]}...' ({len(segment['text'])} chars)")
-                    print(f"[Segmenter]   Segments remaining: {segment_counter}")
-                    
-                    # Reset conversation if counter reaches zero
-                    if segment_counter == 0:
-                        print(f"[Segmenter] ✅ Conversation {conversation_id} complete")
-                        conversation_id = None
                 else:
                     # No more segments to send
-                    print("[Segmenter] No more segments in queue")
                     is_sending = False
                     
             elif event["id"] == "control":
                 # Reset command
                 command = event["value"][0].as_py()
                 if command == "reset":
-                    print(f"[Segmenter] RESET - clearing {len(segment_queue)} queued segments")
+                    print(f"[Segmenter] RESET: Cleared {len(segment_queue)} queued segments via control command")
                     segment_queue.clear()
                     is_sending = False
                     segment_counter = 0
-                    conversation_id = None
-                    
+
+            elif event["id"] == "reset":
+                # Reset signal - clear only segments from OLD questions (different question_id)
+                metadata = event.get("metadata", {})
+                incoming_question_id = metadata.get("question_id", None)
+
+                if incoming_question_id is None:
+                    # No question_id in reset signal - clear all (backward compatibility)
+                    cleared_count = len(segment_queue)
+                    segment_queue.clear()
+                    is_sending = False
+                    segment_counter = 0
+                    print(f"[Segmenter] RESET: Cleared {cleared_count} queued segments (no question_id)")
+                else:
+                    # Smart reset - only clear segments from different question_id
+                    original_count = len(segment_queue)
+                    new_queue = deque()
+                    cleared_count = 0
+
+                    for segment in segment_queue:
+                        seg_question_id = segment.get("question_id", None)
+                        if seg_question_id != incoming_question_id:
+                            # This segment is from a different (old) question - discard it
+                            cleared_count += 1
+                        else:
+                            # Keep segments with same question_id (new question)
+                            new_queue.append(segment)
+
+                    segment_queue = new_queue
+                    segment_counter = len(segment_queue)
+
+                    # Update current_question_id to the new question
+                    current_question_id = incoming_question_id
+
+                    # Reset is_sending if queue is empty
+                    if len(segment_queue) == 0:
+                        is_sending = False
+
+                    print(f"[Segmenter] SMART RESET: Cleared {cleared_count}/{original_count} old segments, kept {len(segment_queue)} from new question_id={incoming_question_id}")
+
         elif event["type"] == "STOP":
             break
-    
-    print("[Segmenter] Stopped")
 
 if __name__ == "__main__":
     main()

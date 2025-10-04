@@ -38,27 +38,84 @@ def send_log(node, level, message, config_level="INFO"):
     node.send_output("log", pa.array([json.dumps(log_data)]))
 
 
+def validate_language_config(lang_code, param_name, node, log_level):
+    """Validate language configuration and provide helpful error messages"""
+    # Valid language codes for MoYoYo TTS v2
+    VALID_LANGUAGES = ["auto", "auto_yue", "en", "zh", "ja", "yue", "ko",
+                      "all_zh", "all_ja", "all_yue", "all_ko"]
+
+    if lang_code in VALID_LANGUAGES:
+        return lang_code
+
+    # Invalid language code - show error prominently
+    error_header = "=" * 70
+    print(f"\n{error_header}", flush=True)
+    print(f"❌ PRIMESPEECH CONFIGURATION ERROR", flush=True)
+    print(f"{error_header}", flush=True)
+
+    main_error = f"INVALID {param_name}: '{lang_code}' is NOT a valid language!"
+    print(f"{main_error}", flush=True)
+    send_log(node, "ERROR", main_error, log_level)
+
+    # Check for common mistakes and suggest corrections
+    if lang_code.lower() == "cn":
+        hint = "Did you mean 'zh' for Chinese? Use 'zh' not 'cn'!"
+        print(f"💡 HINT: {hint}", flush=True)
+        send_log(node, "ERROR", hint, log_level)
+    elif lang_code.lower() == "chinese":
+        hint = "Use 'zh' for Chinese, not 'chinese'!"
+        print(f"💡 HINT: {hint}", flush=True)
+        send_log(node, "ERROR", hint, log_level)
+    elif lang_code.lower() == "english":
+        hint = "Use 'en' for English, not 'english'!"
+        print(f"💡 HINT: {hint}", flush=True)
+        send_log(node, "ERROR", hint, log_level)
+
+    valid_msg = f"Valid languages: {', '.join(VALID_LANGUAGES)}"
+    print(f"✅ {valid_msg}", flush=True)
+    send_log(node, "ERROR", valid_msg, log_level)
+
+    print(f"⚠️  TTS will FAIL until you fix {param_name} in your configuration!", flush=True)
+    print(f"{error_header}\n", flush=True)
+    send_log(node, "ERROR", f"TTS will fail until you fix {param_name}!", log_level)
+
+    # Return the invalid code as-is (will cause TTS to fail with clear error)
+    return lang_code
+
+
 def main():
     """Main entry point for PrimeSpeech node"""
-    
+
     node = Node()
     config = PrimeSpeechConfig()
-    
+
     # Get voice configuration
     voice_name = config.VOICE_NAME
     if voice_name not in VOICE_CONFIGS:
         send_log(node, "ERROR", f"Unknown voice: {voice_name}. Available: {list(VOICE_CONFIGS.keys())}", config.LOG_LEVEL)
         voice_name = "Doubao"
-    
+
     voice_config = VOICE_CONFIGS[voice_name]
-    
+
     # Override with environment variables if provided
     if config.PROMPT_TEXT:
         voice_config["prompt_text"] = config.PROMPT_TEXT
-    if config.TEXT_LANG != "auto":
-        voice_config["text_lang"] = config.TEXT_LANG
-    if config.PROMPT_LANG != "auto":
-        voice_config["prompt_lang"] = config.PROMPT_LANG
+
+    # Validate and set text language
+    print(f"[PRIMESPEECH CONFIG] TEXT_LANG from env: '{config.TEXT_LANG}'", flush=True)
+    if config.TEXT_LANG:
+        validated_text_lang = validate_language_config(
+            config.TEXT_LANG, "TEXT_LANG", node, config.LOG_LEVEL)
+        voice_config["text_lang"] = validated_text_lang
+        print(f"[PRIMESPEECH CONFIG] Validated TEXT_LANG: '{validated_text_lang}'", flush=True)
+
+    # Validate and set prompt language
+    print(f"[PRIMESPEECH CONFIG] PROMPT_LANG from env: '{config.PROMPT_LANG}'", flush=True)
+    if config.PROMPT_LANG:
+        validated_prompt_lang = validate_language_config(
+            config.PROMPT_LANG, "PROMPT_LANG", node, config.LOG_LEVEL)
+        voice_config["prompt_lang"] = validated_prompt_lang
+        print(f"[PRIMESPEECH CONFIG] Validated PROMPT_LANG: '{validated_prompt_lang}'", flush=True)
     
     # Add inference parameters
     voice_config.update({
@@ -87,9 +144,30 @@ def main():
     else:
         send_log(node, "WARNING", "⚠️  MoYoYo TTS not fully available", config.LOG_LEVEL)
     
+    # Log the configuration being used
     send_log(node, "INFO", f"Voice: {voice_name}", config.LOG_LEVEL)
-    send_log(node, "INFO", f"Language: {voice_config.get('text_lang', 'auto')}", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Text Language: {voice_config.get('text_lang', 'auto')} (configured: {config.TEXT_LANG})", config.LOG_LEVEL)
+    send_log(node, "INFO", f"Prompt Language: {voice_config.get('prompt_lang', 'auto')} (configured: {config.PROMPT_LANG})", config.LOG_LEVEL)
     send_log(node, "INFO", f"Device: {config.DEVICE}", config.LOG_LEVEL)
+
+    # Validate the final configuration
+    final_text_lang = voice_config.get('text_lang', 'auto')
+    final_prompt_lang = voice_config.get('prompt_lang', 'auto')
+
+    VALID_LANGUAGES = ["auto", "auto_yue", "en", "zh", "ja", "yue", "ko",
+                      "all_zh", "all_ja", "all_yue", "all_ko"]
+
+    if final_text_lang not in VALID_LANGUAGES:
+        send_log(node, "ERROR",
+                f"CRITICAL: text_lang '{final_text_lang}' is not valid! "
+                f"This will cause TTS to fail. Please fix your configuration.",
+                config.LOG_LEVEL)
+
+    if final_prompt_lang not in VALID_LANGUAGES:
+        send_log(node, "ERROR",
+                f"CRITICAL: prompt_lang '{final_prompt_lang}' is not valid! "
+                f"This will cause TTS to fail. Please fix your configuration.",
+                config.LOG_LEVEL)
     
     # Initialize TTS engine
     tts_engine: Optional[MoYoYoTTSWrapper] = None
@@ -185,12 +263,14 @@ def main():
                                     "segment_index": segment_index,
                                     "segments_remaining": metadata.get("segments_remaining", 0),
                                     "conversation_id": metadata.get("conversation_id"),
+                                    "question_id": metadata.get("question_id"),  # Pass through question_id
                                     "fragment_num": fragment_num,
                                     "sample_rate": sample_rate,
                                     "duration": fragment_duration,
                                     "is_streaming": True,
                                     "voice": voice_name,
-                                    "language": language
+                                    "language": language,
+                                    "text": text  # Add the text being synthesized
                                 }
                             )
                         
@@ -219,12 +299,14 @@ def main():
                                 "segment_index": segment_index,
                                 "segments_remaining": metadata.get("segments_remaining", 0),
                                 "conversation_id": metadata.get("conversation_id"),
+                                "question_id": metadata.get("question_id"),  # Pass through question_id
                                 "sample_rate": sample_rate,
                                 "duration": audio_duration,
                                 "synthesis_time": synthesis_time,
                                 "is_streaming": False,
                                 "voice": voice_name,
-                                "language": language
+                                "language": language,
+                                "text": text  # Add the text being synthesized
                             }
                         )
                     
@@ -245,6 +327,18 @@ def main():
                 except Exception as e:
                     import traceback
                     error_details = traceback.format_exc()
+
+                    # Check for specific language-related errors
+                    if "assert text_lang" in str(e) or "assert prompt_lang" in str(e) or "AssertionError" in str(e.__class__.__name__):
+                        send_log(node, "ERROR", "="*60, config.LOG_LEVEL)
+                        send_log(node, "ERROR", "CRITICAL: Language configuration error detected!", config.LOG_LEVEL)
+                        send_log(node, "ERROR", f"TEXT_LANG: '{language}' (from config: '{config.TEXT_LANG}')", config.LOG_LEVEL)
+                        send_log(node, "ERROR", f"PROMPT_LANG: '{voice_config.get('prompt_lang', 'auto')}' (from config: '{config.PROMPT_LANG}')", config.LOG_LEVEL)
+                        send_log(node, "ERROR", "Valid languages: auto, auto_yue, zh, en, ja, ko, yue, all_zh, all_ja, all_yue, all_ko", config.LOG_LEVEL)
+                        send_log(node, "ERROR", "Common mistakes: 'cn' should be 'zh', 'chinese' should be 'zh'", config.LOG_LEVEL)
+                        send_log(node, "ERROR", "Fix your configuration and restart!", config.LOG_LEVEL)
+                        send_log(node, "ERROR", "="*60, config.LOG_LEVEL)
+
                     send_log(node, "ERROR", f"Synthesis error: {e}", config.LOG_LEVEL)
                     send_log(node, "ERROR", f"Traceback: {error_details}", config.LOG_LEVEL)
                     

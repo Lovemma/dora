@@ -7,6 +7,7 @@ Wraps the dora-mac-aec node and adds VAD-based segmentation
 import os
 import sys
 import time
+import random
 import numpy as np
 import pyarrow as pa
 from dora import Node
@@ -70,14 +71,27 @@ class MacAECSegmentation:
         
         # Thresholds
         self.speech_start_threshold = 3  # Frames of speech to start
-        self.speech_end_threshold = 10   # Frames of silence to end
+        # Speech end threshold: configurable via env var (frames of silence, ~10ms per frame)
+        self.speech_end_threshold = int(os.getenv("SPEECH_END_FRAMES", "10"))  # Default 10 frames (~100ms)
         self.min_segment_size = 4800     # Minimum samples (0.3s at 16kHz)
         self.max_segment_size = 160000    # Maximum samples (10s at 16kHz)
-        
+
+        # Question end detection (same as speech-monitor)
+        # Read from environment variables
+        # IMPORTANT: Total silence = speech_end_threshold (~100ms) + question_end_silence_ms
+        self.question_end_silence_ms = float(os.getenv("QUESTION_END_SILENCE_MS", "1000"))
+        if self.node:
+            send_log(self.node, "INFO", f"🔧 CONFIG: QUESTION_END_SILENCE_MS = {self.question_end_silence_ms}ms (from env or default)")
+        self.last_speech_end_time = None      # Track when speech last ended
+        self.question_end_sent = False        # Prevent duplicate question_ended signals
+
+        # Question ID tracking - generate new ID only after question_ended
+        self.current_question_id = random.randint(100000, 999999)  # 6-digit random ID
+
         # Audio buffer for segmentation
         self.audio_segment_buffer = []
         self.sample_rate = 16000
-        
+
         # Debug counter
         self._debug_counter = 0
         
@@ -178,14 +192,25 @@ class MacAECSegmentation:
                     if self.node:
                         send_log(self.node, "WARNING", f"Got non-bytes data: {type(audio_data)}")
                     break
-            
-            # If no audio was available, return None
+
+            # CRITICAL: Check question_ended BEFORE early return (timer-based, runs every 10ms)
+            question_ended = False
+            if not self.is_speaking and self.last_speech_end_time and not self.question_end_sent:
+                silence_since_speech_ms = (time.time() - self.last_speech_end_time) * 1000
+                if silence_since_speech_ms >= self.question_end_silence_ms:
+                    question_ended = True
+                    self.question_end_sent = True
+                    if self.node:
+                        send_log(self.node, "INFO", f"⏱️ QUESTION_ENDED DETECTED - will send question_id={self.current_question_id} with question_ended signal (沉默时长: {silence_since_speech_ms:.0f}ms)")
+
+            # If no audio was available, return with question_ended status
             if len(all_audio) == 0:
-                return None, False, False, None
-            
+                return None, False, False, None, question_ended, self.current_question_id
+
             # Combine all audio chunks
             audio_array = np.concatenate(all_audio) if len(all_audio) > 1 else all_audio[0]
             vad_result = any(vad_results)  # True if any chunk had voice
+            num_chunks = len(all_audio)  # Track number of chunks for accurate silence counting
                 
             # Debug: Check audio characteristics periodically
             if not hasattr(self, '_debug_counter'):
@@ -203,20 +228,25 @@ class MacAECSegmentation:
             speech_started = False
             speech_ended = False
             audio_segment = None
-            
+            # question_ended already set above (before early return check)
+
             # Update speech state based on VAD
             if vad_result:
                 # Speech detected
                 if not self.is_speaking:
                     self.silence_count = 0
                     self.speech_buffer.append(audio_array)
-                    
+
                     # Check if we have enough speech to start
                     if len(self.speech_buffer) >= self.speech_start_threshold:
                         self.is_speaking = True
                         speech_started = True
-                        # Speech started - no verbose logging
-                        
+                        # Reset question_end tracking when new speech starts
+                        self.question_end_sent = False
+                        # TRACE: Log speech start with current question_id
+                        if self.node:
+                            send_log(self.node, "INFO", f"🎤 NEW SPEECH STARTED - keeping question_id={self.current_question_id}")
+
                         # Start new segment buffer
                         self.audio_segment_buffer = []
                         for buf in self.speech_buffer:
@@ -240,8 +270,9 @@ class MacAECSegmentation:
                 if self.is_speaking:
                     # Add to buffer even during silence (for natural endings)
                     self.audio_segment_buffer.extend(audio_array)
-                    self.silence_count += 1
-                    
+                    # Increment by number of chunks collected (not just 1) for accurate timing
+                    self.silence_count += num_chunks
+
                     # Check if silence is long enough to end speech
                     if self.silence_count >= self.speech_end_threshold:
                         # Speech ended - create segment
@@ -251,24 +282,34 @@ class MacAECSegmentation:
                         else:
                             if self.node:
                                 send_log(self.node, "DEBUG", f"Segment too short, discarding: {len(self.audio_segment_buffer)} samples")
-                            
+
                         # Reset state
                         self.audio_segment_buffer = []
                         self.is_speaking = False
+                        silence_frames = self.silence_count  # Save for logging
                         self.silence_count = 0
                         self.speech_buffer = []
                         speech_ended = True
+                        # Track speech end time for question detection
+                        self.last_speech_end_time = time.time()
+                        self.question_end_sent = False
+                        # TRACE: Log speech end with current question_id
+                        if self.node:
+                            send_log(self.node, "INFO", f"🔇 SPEECH ENDED - question_id={self.current_question_id}, silence_frames={silence_frames} (~{silence_frames*10}ms), starting question_end timer")
                 else:
                     # Not speaking, clear buffers if any
                     if len(self.speech_buffer) > 0:
                         self.speech_buffer = []
-                        
-            return audio_array, speech_started, speech_ended, audio_segment
+                    # question_ended already checked above (before early return, timer-based)
+
+            # Return current question_id (the one that's active/just ended)
+            # We'll generate the new question_id AFTER sending the question_ended signal
+            return audio_array, speech_started, speech_ended, audio_segment, question_ended, self.current_question_id
             
         except Exception as e:
             if self.node:
                 send_log(self.node, "ERROR", f"Error processing audio: {e}")
-            return None, False, False, None
+            return None, False, False, None, False, self.current_question_id
 
 
 def main():
@@ -277,14 +318,19 @@ def main():
     
     send_log(node, "INFO", "MAC-AEC Simple Segmentation Node starting")
     send_log(node, "INFO", "Wrapping dora-mac-aec with VAD-based segmentation")
-    
+
     # Initialize wrapper
     mac_aec = MacAECSegmentation(node)
-    
+
     # Start MAC-AEC
     mac_aec.start()
-        
-    send_log(node, "INFO", "Node ready - outputting: audio, is_speaking, speech_started, speech_ended, audio_segment")
+
+    speech_end_frames = int(os.getenv("SPEECH_END_FRAMES", "10"))
+    question_end_silence_ms = float(os.getenv("QUESTION_END_SILENCE_MS", "3000"))
+    speech_end_ms = speech_end_frames * 10  # Approximate ms (assuming ~10ms per frame)
+    total_silence_ms = speech_end_ms + question_end_silence_ms
+    send_log(node, "INFO", f"Silence detection: speech_end={speech_end_ms}ms ({speech_end_frames} frames) + question_end={question_end_silence_ms}ms = total ~{total_silence_ms}ms")
+    send_log(node, "INFO", "Node ready - outputting: audio, is_speaking, speech_started, speech_ended, audio_segment, question_ended")
     
     # State tracking
     frame_count = 0
@@ -293,8 +339,8 @@ def main():
     
     try:
         while True:
-            # Check for events with timeout
-            event = node.next(timeout=0.1)  # 100ms timeout as required
+            # Check for events with timeout (short timeout for responsive question_ended detection)
+            event = node.next(timeout=0.01)  # 10ms timeout for accurate timing
             
             if event and event["type"] == "INPUT":
                 # Handle control commands if needed
@@ -306,11 +352,11 @@ def main():
                 
             # Process audio continuously
             current_time = time.time()
-            
-            # Process more frequently to avoid missing audio (every 10ms)
-            if current_time - last_audio_time > 0.010:
-                audio_frame, speech_started, speech_ended, audio_segment = mac_aec.process_audio(node)
-                
+
+            # Process audio every cycle (10ms polling rate)
+            if current_time - last_audio_time >= 0.008:  # Trigger every ~10ms
+                audio_frame, speech_started, speech_ended, audio_segment, question_ended, question_id = mac_aec.process_audio(node)
+
                 if audio_frame is not None:
                     # Send ALL audio frames for complete recording
                     frame_count += 1
@@ -333,16 +379,25 @@ def main():
                 if speech_started:
                     node.send_output("speech_started", pa.array([current_time]))
                     node.send_output("is_speaking", pa.array([True]))
-                    
+
                 if speech_ended:
                     node.send_output("speech_ended", pa.array([current_time]))
                     node.send_output("is_speaking", pa.array([False]))
-                    
+
+                # Send question_ended signal (same as speech-monitor)
+                if question_ended:
+                    send_log(node, "INFO", f"📤 SENDING question_ended with OLD question_id={question_id}")
+                    node.send_output("question_ended", pa.array([current_time]), metadata={"question_id": question_id})
+                    # Generate new question_id for next question AFTER sending signal
+                    new_qid = random.randint(100000, 999999)
+                    mac_aec.current_question_id = new_qid
+                    send_log(node, "INFO", f"🆕 GENERATED NEW question_id={new_qid} for NEXT question")
+
                 # Send audio segment when ready
                 if audio_segment is not None:
-                    # Segment sent - no verbose logging
-                    # Send as float32 array for ASR compatibility
-                    node.send_output("audio_segment", pa.array(audio_segment, type=pa.float32()))
+                    # Send as float32 array for ASR compatibility with question_id
+                    send_log(node, "INFO", f"🎵 AUDIO_SEGMENT sent with question_id={question_id}")
+                    node.send_output("audio_segment", pa.array(audio_segment, type=pa.float32()), metadata={"question_id": question_id})
                     
                 last_audio_time = current_time
                 

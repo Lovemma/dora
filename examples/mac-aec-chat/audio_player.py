@@ -209,6 +209,10 @@ def main():
         start_time = time.time()
         playback_started = False
         discard_next_audio = False  # Flag to discard next audio after reset
+
+        # Question ID tracking for smart reset
+        current_question_id = None
+        reset_question_id = None  # Track which question triggered reset
         
         # Timing
         last_visualization_time = time.time()
@@ -228,37 +232,54 @@ def main():
             except Exception:
                 continue
             
-            # Handle control input
+            # Handle control input (question_ended signal from mac-aec)
             if event and event["type"] == "INPUT" and event["id"] == "control":
                 try:
-                    control_cmd = event["value"][0].as_py()
+                    # question_ended sends timestamp, metadata has question_id
                     metadata = event.get("metadata", {})
-                    
-                    if control_cmd == "reset":
-                        # Reset the buffer
-                        player.reset()
-                        player.pause()  # Make sure we're paused after reset
-                        playback_started = False
-                        segments_received = 0
-                        
-                        # Set flag to discard next audio chunk from TTS
-                        discard_next_audio = True
-                        
-                        elapsed = time.time() - start_time
-                        # Don't print inline messages that would mess up the display
-                    elif control_cmd == "pause":
-                        player.pause()
-                        # Don't print inline messages that would mess up the display
-                        pass
-                    elif control_cmd == "resume":
-                        player.resume()
-                        # Don't print inline messages that would mess up the display
-                        pass
-                    elif control_cmd == "status":
-                        stats = player.buffer.get_stats()
-                        print(f"[{time.time() - start_time:6.2f}s] Buffer Status:")
-                        print(f"  Available: {stats['available_seconds']:.1f}s ({stats['buffer_fill']:.1f}%)")
-                        print(f"  Underruns: {stats['underruns']}, Overruns: {stats['overruns']}")
+                    question_id = metadata.get("question_id", None)
+
+                    # Smart reset based on question_id (triggered by question_ended)
+                    if question_id is not None:
+                        # Track the question_id that triggered reset
+                        reset_question_id = question_id
+
+                        # Only reset if this is a DIFFERENT question
+                        if current_question_id != question_id:
+                            # Old question in buffer - reset it
+                            player.reset()
+                            player.pause()
+                            playback_started = False
+                            segments_received = 0
+                            discard_next_audio = True
+                            print(f"[Audio Player] SMART RESET: Cleared old question (current={current_question_id}, new={question_id})")
+                        else:
+                            # Same question - don't reset, keep playing
+                            print(f"[Audio Player] SMART RESET: Kept audio from current question_id={question_id}")
+                    else:
+                        # No question_id - check if it's a control command string
+                        try:
+                            control_cmd = event["value"][0].as_py()
+                            if control_cmd == "reset":
+                                # Full reset (backward compatibility)
+                                player.reset()
+                                player.pause()
+                                playback_started = False
+                                segments_received = 0
+                                discard_next_audio = True
+                                print(f"[Audio Player] RESET: Cleared buffer (no question_id)")
+                            elif control_cmd == "pause":
+                                player.pause()
+                            elif control_cmd == "resume":
+                                player.resume()
+                            elif control_cmd == "status":
+                                stats = player.buffer.get_stats()
+                                print(f"[{time.time() - start_time:6.2f}s] Buffer Status:")
+                                print(f"  Available: {stats['available_seconds']:.1f}s ({stats['buffer_fill']:.1f}%)")
+                                print(f"  Underruns: {stats['underruns']}, Overruns: {stats['overruns']}")
+                        except:
+                            pass  # Not a string command, ignore
+
                 except Exception as e:
                     print(f"[Error] Processing control signal: {e}")
             
@@ -271,32 +292,41 @@ def main():
                         if audio_data is not None:
                             if not isinstance(audio_data, np.ndarray):
                                 audio_data = np.array(audio_data, dtype=np.float32)
-                            
+
                             if len(audio_data) > 0:
-                                # Check if we should discard this audio due to reset
-                                if discard_next_audio:
-                                    metadata = event.get("metadata", {})
-                                    fragment_num = metadata.get("fragment_num", 0)
-                                    segment_index = metadata.get("segment_index", -1)
-                                    
-                                    # Check if this is the start of a new synthesis (fragment 1 or segment 0)
-                                    if fragment_num == 1 or segment_index == 0:
-                                        # This is new synthesis, stop discarding
-                                        discard_next_audio = False
-                                        # Don't print inline messages that would mess up the display
-                                        pass
-                                    else:
-                                        # Still old synthesis, discard
-                                        # Don't print inline messages that would mess up the display
-                                        continue  # Skip processing this audio
-                                
                                 metadata = event.get("metadata", {})
+                                audio_question_id = metadata.get("question_id", None)
+
+                                # Update current_question_id from incoming audio
+                                if audio_question_id is not None:
+                                    current_question_id = audio_question_id
+
+                                # Smart discard based on question_id
+                                if discard_next_audio:
+                                    # Check if this audio is from a different question
+                                    if reset_question_id is not None and audio_question_id is not None:
+                                        if audio_question_id == reset_question_id:
+                                            # This is audio from the NEW question - stop discarding
+                                            discard_next_audio = False
+                                        else:
+                                            # Audio from old question - discard
+                                            continue
+                                    else:
+                                        # Fallback to old fragment/segment detection
+                                        fragment_num = metadata.get("fragment_num", 0)
+                                        segment_index = metadata.get("segment_index", -1)
+
+                                        if fragment_num == 1 or segment_index == 0:
+                                            discard_next_audio = False
+                                        else:
+                                            continue
+
                                 segment_index = metadata.get("segment_index", -1)
                                 duration = len(audio_data) / 32000.0
-                                
+
                                 segments_received += 1
                                 # Don't print inline messages that would mess up the display
-                                
+
                                 player.add_audio(audio_data)
                                 
                                 # Auto-start playback as soon as we have any audio

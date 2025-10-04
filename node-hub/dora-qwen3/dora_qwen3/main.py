@@ -360,17 +360,18 @@ class Qwen3LLMNode:
                 
         return history
 
-    def generate_response(self, text: str, session_id: str) -> str:
+    def generate_response(self, text: str) -> str:
         """Generate a response using MLX or GGUF."""
         if self.use_mlx:
-            return self.generate_response_mlx(text, session_id)
+            return self.generate_response_mlx(text)
         else:
-            return self.generate_response_gguf(text, session_id)
+            return self.generate_response_gguf(text)
 
-    def generate_response_mlx(self, text: str, session_id: str) -> str:
+    def generate_response_mlx(self, text: str) -> str:
         """Generate response using MLX."""
         try:
             # Get or create session
+            session_id = "default"
             if session_id not in self.chat_sessions:
                 self.chat_sessions[session_id] = []
 
@@ -534,10 +535,11 @@ class Qwen3LLMNode:
             send_log(self.node, "ERROR", f"Error with MLX generation: {e}")
             return f"Error: {str(e)}"
     
-    def generate_response_mlx_streaming(self, text: str, session_id: str, metadata: dict):
+    def generate_response_mlx_streaming(self, text: str, metadata: dict = None):
         """Generate response using MLX with streaming."""
         try:
             # Get or create session
+            session_id = "default"
             if session_id not in self.chat_sessions:
                 self.chat_sessions[session_id] = []
 
@@ -681,39 +683,33 @@ class Qwen3LLMNode:
                 if should_send and chunk_buffer.strip():
                     # Clean chunk before sending
                     clean_chunk = chunk_buffer.strip()
-                    
+
+                    # Remove dashes from output
+                    clean_chunk = clean_chunk.replace("-", "")
+
                     # Skip if it's part of thinking tags
                     if not self.config["enable_thinking"]:
                         if '<think>' in clean_chunk or '</think>' in clean_chunk:
                             chunk_buffer = ""
                             continue
-                    
-                    # Send chunk to TTS
+
+                    # Send chunk to TTS with metadata (including question_id)
                     self.node.send_output(
                         output_id="text",
                         data=pa.array([clean_chunk]),
-                        metadata={
-                            **metadata,
-                            "segment_index": segment_index,
-                            "is_streaming": True,
-                            "is_final": False
-                        }
+                        metadata=metadata or {}
                     )
-                    
+
                     segment_index += 1
                     chunk_buffer = ""
-            
+
             # Send any remaining buffer
             if chunk_buffer.strip():
+                clean_final_chunk = chunk_buffer.strip().replace("-", "")
                 self.node.send_output(
                     output_id="text",
-                    data=pa.array([chunk_buffer.strip()]),
-                    metadata={
-                        **metadata,
-                        "segment_index": segment_index,
-                        "is_streaming": True,
-                        "is_final": True
-                    }
+                    data=pa.array([clean_final_chunk]),
+                    metadata=metadata or {}
                 )
             
             # Clean final response
@@ -740,21 +736,15 @@ class Qwen3LLMNode:
             # Send error as final message
             self.node.send_output(
                 output_id="text",
-                data=pa.array([f"Error: {str(e)}"]),
-                metadata={
-                    **metadata,
-                    "segment_index": 0,
-                    "is_streaming": True,
-                    "is_final": True,
-                    "error": str(e)
-                }
+                data=pa.array([f"Error: {str(e)}"])
             )
             return f"Error: {str(e)}"
 
-    def generate_response_gguf(self, text: str, session_id: str) -> str:
+    def generate_response_gguf(self, text: str) -> str:
         """Generate response using GGUF."""
         try:
             # Get or create session
+            session_id = "default"
             if session_id not in self.chat_sessions:
                 self.chat_sessions[session_id] = []
 
@@ -833,41 +823,45 @@ class Qwen3LLMNode:
                     if input_id == "tick":
                         continue
 
-                    metadata = event.get("metadata", {})
-                    session_id = metadata.get("session_id", "default")
+                    # Removed metadata handling as requested
+                    session_id = "default"
 
                     # Handle text input
                     if input_id == "text":
                         try:
                             user_text = event["value"][0].as_py()
+                            # Extract metadata (including question_id) to pass through
+                            input_metadata = event.get("metadata", {})
                             send_log(self.node, "DEBUG", f"Input: {user_text[:100]}...")
 
                             # Check if streaming is enabled
                             enable_streaming = os.getenv("LLM_ENABLE_STREAMING", "true").lower() == "true"
-                            
+
                             if enable_streaming and self.use_mlx:
-                                # Use streaming for MLX
-                                response = self.generate_response_mlx_streaming(user_text, session_id, metadata)
+                                # Use streaming for MLX - pass metadata to streaming function
+                                response = self.generate_response_mlx_streaming(user_text, metadata=input_metadata)
                                 send_log(self.node, "INFO", f"Response streamed ({len(response)} chars)")
                             else:
                                 # Use regular generation
-                                response = self.generate_response(user_text, session_id)
-                                
-                                # Send response
+                                response = self.generate_response(user_text)
+
+                                # Remove dashes from response
+                                response = response.replace("-", "")
+
+                                # Send response with metadata
                                 self.node.send_output(
                                     output_id="text",
                                     data=pa.array([response]),
-                                    metadata={"session_id": session_id}
+                                    metadata=input_metadata
                                 )
-                                
+
                                 send_log(self.node, "INFO", f"Response Generated ({len(response)} chars)")
 
                         except Exception as e:
                             send_log(self.node, "ERROR", f"Error processing text: {e}")
                             self.node.send_output(
                                 output_id="response",
-                                data=pa.array([f"Error: {str(e)}"]),
-                                metadata={"session_id": session_id}
+                                data=pa.array([f"Error: {str(e)}"])
                             )
 
                     # Handle control commands
@@ -886,15 +880,17 @@ class Qwen3LLMNode:
                                 send_log(self.node, "INFO", f"Text-to-audio response streamed ({len(response)} chars)")
                             else:
                                 # Use regular generation
-                                response = self.generate_response(user_text, session_id)
-                                
+                                response = self.generate_response(user_text)
+
+                                # Remove dashes from response
+                                response = response.replace("-", "")
+
                                 # Send response as text output (will be converted to audio by TTS)
                                 self.node.send_output(
                                     output_id="text",
-                                    data=pa.array([response]),
-                                    metadata={"session_id": session_id}
+                                    data=pa.array([response])
                                 )
-                                
+
                                 send_log(self.node, "INFO", f"Text-to-audio response sent ({len(response)} chars)")
 
                         except Exception as e:
@@ -917,8 +913,7 @@ class Qwen3LLMNode:
                             send_log(self.node, "DEBUG", f"Client ready: {session_id}")
                             self.node.send_output(
                                 output_id="status",
-                                data=pa.array(["ready"]),
-                                metadata={"session_id": session_id}
+                                data=pa.array(["ready"])
                             )
 
         except KeyboardInterrupt:

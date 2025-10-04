@@ -102,6 +102,41 @@ mac-aec-chat/
 🔊 Audio Output
 ```
 
+## Recent Improvements (2025-01-04)
+
+### Question End Detection Fix
+- **Fixed timer-based detection**: Question end now fires accurately after configured silence period
+- **Issue**: Timer check was blocked when no audio data available, causing 3-second delays
+- **Solution**: Moved question_ended check BEFORE early return, runs every 10ms regardless of audio buffer status
+- **Result**: Question detection now fires at configured timing (~600ms total: 100ms speech_end + 500ms question_end)
+
+### Silence Counting Accuracy
+- **Fixed frame counting**: `silence_count` now increments by actual chunks collected, not just 1
+- **Issue**: Audio buffer drains multiple chunks per call, but counter only incremented by 1
+- **Solution**: Track `num_chunks = len(all_audio)` and increment `silence_count += num_chunks`
+- **Result**: Speech end detection timing now accurate (~100ms for 10 frames)
+
+### Responsive Polling
+- **Reduced main loop timeout**: Changed from 100ms to 10ms
+- **Trigger condition**: Adjusted to `>= 0.008` seconds for ~10ms polling rate
+- **Result**: Question_ended check runs every ~10ms for precise timing
+
+### Text Segmenter Improvements
+- **Race condition fix**: Removed filtering from text event loop, only filter in reset handler
+- **PUNCTUATION_MARKS support**: Made punctuation filtering configurable via environment variable
+- **Default**: `"。！？.!?"` (Chinese and English punctuation)
+- **Usage**: Set `PUNCTUATION_MARKS: "custom marks"` in YAML config
+
+### Configuration Notes
+⚠️ **Environment Variable Limitation**:
+- Nodes with `path: dynamic` do NOT receive environment variables from YAML
+- Hardcoded defaults in Python code are used instead
+- **Workaround**: Edit default values directly in `mac_aec_simple_segmentation.py`:
+  ```python
+  self.question_end_silence_ms = float(os.getenv("QUESTION_END_SILENCE_MS", "500"))  # Change "500" here
+  self.speech_end_threshold = int(os.getenv("SPEECH_END_FRAMES", "10"))  # Change "10" here
+  ```
+
 ## Critical Implementation Notes (Golden Version)
 
 ⚠️ **IMPORTANT**: The MAC-AEC implementation has specific requirements:
@@ -109,8 +144,9 @@ mac-aec-chat/
 1. **Use `dora-aec`** library, NOT `dora-mac-aec` (latter lacks proper echo cancellation)
 2. **Drain audio buffer completely** - loop `get_audio_data()` until None
 3. **Send ALL frames** - not just samples (was losing 97% of audio!)
-4. **Poll every 10ms** - not 33ms (to avoid gaps)
+4. **Poll every 10ms** - main loop timeout and audio processing rate
 5. **Convert format** - int16 bytes → float32 arrays for ASR
+6. **Question end detection** - Timer-based check runs BEFORE early return (every 10ms)
 
 ## Troubleshooting
 
@@ -119,6 +155,10 @@ mac-aec-chat/
 | Empty recordings | Check audio buffer is being drained completely in loop |
 | Echo not cancelled | Ensure using `dora-aec` library, not `dora-mac-aec` |
 | Missing audio | Verify polling at 10ms intervals and sending ALL frames |
+| **Question end takes too long** | **Edit hardcoded default in `mac_aec_simple_segmentation.py` line 82** |
+| **Current question text discarded** | **Text-segmenter race condition - filtering only in reset handler (fixed)** |
+| **Silence detection inaccurate** | **Ensure `silence_count += num_chunks` not `+= 1` (fixed)** |
+| Env vars not working | `path: dynamic` nodes don't receive env vars - edit hardcoded defaults instead |
 | Model not found | Use model-manager to download: `python ../model-manager/download_models.py --download MODEL_NAME` |
 | Out of memory | Use smaller model: `MLX_MODEL: "Qwen/Qwen3-8B-MLX-4bit"` |
 | No audio | Check microphone permissions in System Settings |
@@ -127,9 +167,11 @@ mac-aec-chat/
 ## Performance
 
 - **First response**: 1-2 seconds
-- **ASR latency**: 200-500ms  
-- **LLM generation**: 20-50 tokens/sec
-- **TTS synthesis**: 2-3x real-time
+- **ASR latency**: 200-500ms
+- **LLM generation**: 20-50 tokens/sec (Qwen3-8B on Apple Silicon)
+- **TTS synthesis**: 2-3x real-time (PrimeSpeech)
+- **Question end detection**: ~600ms (100ms speech_end + 500ms silence threshold)
+- **Main loop polling**: 10ms (responsive timer-based detection)
 
 ## Related Projects
 

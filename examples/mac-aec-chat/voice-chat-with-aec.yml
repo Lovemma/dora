@@ -8,6 +8,11 @@ nodes:
       - speech_started
       - speech_ended
       - audio_segment
+      - question_ended
+      - log
+    env:
+      SPEECH_END_FRAMES: "10"  # Frames (~10ms each) of VAD silence to end speech segment (~100ms)
+      QUESTION_END_SILENCE_MS: "500"  # Additional silence AFTER speech_end to trigger question_ended (total ~600ms)
 
   # ASR transcription
   - id: asr
@@ -72,13 +77,13 @@ nodes:
       HISTORY_STRATEGY: "token_based"  # Options: "fixed", "token_based", or "sliding_window"
       
       # For "fixed" strategy (currently active):
-      MAX_HISTORY_EXCHANGES: "5"  # Keep last 5 Q&A pairs (10 messages total)
+      MAX_HISTORY_EXCHANGES: "10"  # Keep last 10 Q&A pairs (20 messages total)
       
       # For "token_based" strategy (not active unless you change HISTORY_STRATEGY):
       MAX_HISTORY_TOKENS: "3000"  # Max tokens for history (only used when HISTORY_STRATEGY="token_based")
       
       # System prompt
-      SYSTEM_PROMPT: "你你是AI助手。请以自然流畅的中文口语化表达直接回答问题，避免冗余的思考过程。如果问题不明确，请礼貌地请求澄清。回答既不要过短也不要过长，以适应对话语境。回答应准确、精炼且有依据。"
+      SYSTEM_PROMPT: "你你是AI助手。请以自然流畅的中文口语化表达直接回答问题，避免冗余的思考过程。如果问题不明确，请礼貌地请求澄清。回答既不要过短也不要过长，以适应对话语境。使用口语化输出，回答应准确、精炼且有依据。不要输出 markdown 格式，不要生成不能够被语音合成的内容，不要使用 1, 2， 3 这种书面化的表达方式。"
       
       LOG_LEVEL: INFO
 
@@ -89,6 +94,7 @@ nodes:
     inputs:
       text: qwen3-llm/text  # From LLM
       tts_complete: primespeech/segment_complete  # TTS completion signal
+      reset: mac-aec/question_ended  # Clear queue when new question detected
     outputs:
       - text_segment
       - status
@@ -150,6 +156,7 @@ nodes:
     path: dynamic
     inputs:
       audio: primespeech/audio
+      control: mac-aec/question_ended  # Reset buffer when new question detected
     outputs:
       - buffer_status
       - status
@@ -163,3 +170,4 @@ nodes:
       segment: text-segmenter/text_segment
       speech_started: mac-aec/speech_started
       speech_ended: mac-aec/speech_ended
+      log: mac-aec/log

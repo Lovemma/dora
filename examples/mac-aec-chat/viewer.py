@@ -94,7 +94,8 @@ def main():
                         log_data = json.loads(event["value"][0].as_py())
                         level = log_data.get("level", "INFO")
                         message = log_data.get("message", "")
-                        
+                        node_name = log_data.get("node", "")
+
                         if level == "ERROR":
                             print_event("⚠️ ERROR", message, Colors.RED)
                         elif level == "WARNING":
@@ -103,10 +104,12 @@ def main():
                             # Skip debug messages in normal view
                             pass
                         else:
-                            # Info messages
-                            if "Ready" in message or "ready" in message:
+                            # Info messages - show all from mac-aec for question_id tracing
+                            if node_name == "mac-aec":
+                                print_event("🎙️ MAC-AEC", message, Colors.BLUE)
+                            elif "Ready" in message or "ready" in message:
                                 print_event("✅ SYSTEM", message, Colors.GREEN)
-                                
+
                     except:
                         pass
                         
