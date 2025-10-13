@@ -79,6 +79,23 @@ def main():
                     text = event["value"][0].as_py()
                     if text:
                         print_event("🔊 TTS", f"Speaking: '{text[:50]}...'", Colors.YELLOW)
+
+                elif input_id == "segment_complete":
+                    # TTS segment completion
+                    status = event["value"][0].as_py()
+                    metadata = event.get("metadata", {})
+                    segment_index = metadata.get("segment_index", -1)
+                    segments_remaining = metadata.get("segments_remaining", 0)
+                    print_event("✅ TTS", f"Segment {segment_index + 1} complete (status: {status}, remaining: {segments_remaining})", Colors.GREEN)
+
+                elif input_id == "audio":
+                    # Audio output from TTS
+                    metadata = event.get("metadata", {})
+                    segment_index = metadata.get("segment_index", -1)
+                    duration = metadata.get("duration", 0)
+                    sample_rate = metadata.get("sample_rate", 0)
+                    is_streaming = metadata.get("is_streaming", False)
+                    print_event("🎵 AUDIO", f"Segment {segment_index + 1}, {duration:.2f}s @ {sample_rate}Hz (streaming: {is_streaming})", Colors.CYAN)
                         
                 elif input_id == "speech_started":
                     # User started speaking
@@ -87,31 +104,46 @@ def main():
                 elif input_id == "speech_ended":
                     # User stopped speaking
                     print_event("🎙️ SPEECH", "User stopped speaking", Colors.BLUE)
-                    
-                elif input_id == "log":
-                    # Log messages from nodes
+
+                # Handle log messages from all nodes
+                elif input_id in ["mac_aec_log", "asr_log", "maas_log", "qwen3_log", "segmenter_log", "kokoro_log", "primespeech_log"]:
                     try:
                         log_data = json.loads(event["value"][0].as_py())
                         level = log_data.get("level", "INFO")
                         message = log_data.get("message", "")
-                        node_name = log_data.get("node", "")
+                        node_name = log_data.get("node", "unknown")
 
+                        # Map input_id to display name
+                        node_display_names = {
+                            "mac_aec_log": ("🎙️", "MAC-AEC"),
+                            "asr_log": ("🎤", "ASR"),
+                            "maas_log": ("🤖", "MAAS"),
+                            "qwen3_log": ("🧠", "QWEN3"),
+                            "segmenter_log": ("✂️", "SEGMENTER"),
+                            "kokoro_log": ("🔊", "KOKORO"),
+                            "primespeech_log": ("🗣️", "PRIMESPEECH")
+                        }
+
+                        icon, display_name = node_display_names.get(input_id, ("📋", node_name.upper()))
+
+                        # Color based on log level
                         if level == "ERROR":
-                            print_event("⚠️ ERROR", message, Colors.RED)
+                            color = Colors.RED
+                            prefix = f"❌ {icon} {display_name}"
                         elif level == "WARNING":
-                            print_event("⚠️ WARNING", message, Colors.YELLOW)
+                            color = Colors.YELLOW
+                            prefix = f"⚠️  {icon} {display_name}"
                         elif level == "DEBUG":
                             # Skip debug messages in normal view
-                            pass
-                        else:
-                            # Info messages - show all from mac-aec for question_id tracing
-                            if node_name == "mac-aec":
-                                print_event("🎙️ MAC-AEC", message, Colors.BLUE)
-                            elif "Ready" in message or "ready" in message:
-                                print_event("✅ SYSTEM", message, Colors.GREEN)
+                            continue
+                        else:  # INFO
+                            color = Colors.CYAN
+                            prefix = f"{icon} {display_name}"
 
-                    except:
-                        pass
+                        print_event(prefix, message, color)
+
+                    except Exception as e:
+                        print_event("❌ LOG ERROR", f"Failed to parse log from {input_id}: {e}", Colors.RED)
                         
             except Exception as e:
                 print_event("❌ ERROR", f"Error processing {input_id}: {e}", Colors.RED)

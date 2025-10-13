@@ -401,7 +401,7 @@ async fn main() -> Result<()> {
 
                                 node.send_output(
                                     DataId::from("text".to_string()),
-                                    metadata.parameters.clone(),
+                                    metadata.clone(),
                                     StringArray::from(vec![final_segment.as_str()]),
                                 ).context("Failed to send final segment")?;
                                 
@@ -532,7 +532,7 @@ async fn main() -> Result<()> {
                                     
                                     node.send_output(
                                         DataId::from("text".to_string()),
-                                        metadata.parameters.clone(),
+                                        metadata.clone(),
                                         StringArray::from(vec![format!("Error: {}", e).as_str()]),
                                     ).context("Failed to send error")?;
                                 }
@@ -566,7 +566,7 @@ async fn main() -> Result<()> {
                                     // Send response with metadata passthrough
                                     node.send_output(
                                         DataId::from("text".to_string()),
-                                        metadata.parameters.clone(),
+                                        metadata.clone(),
                                         StringArray::from(vec![content.as_str()]),
                                     ).context("Failed to send text output")?;
                                     
@@ -593,7 +593,7 @@ async fn main() -> Result<()> {
                                 // Send error response with metadata passthrough
                                 node.send_output(
                                     DataId::from("text".to_string()),
-                                    metadata.parameters.clone(),
+                                    metadata.clone(),
                                     StringArray::from(vec![error_msg.as_str()]),
                                 ).context("Failed to send error output")?;
                             }
@@ -670,7 +670,7 @@ async fn main() -> Result<()> {
                                                 // Send response with metadata passthrough
                                                 node.send_output(
                                                     DataId::from("text".to_string()),
-                                                    metadata.parameters.clone(),
+                                                    metadata.clone(),
                                                     StringArray::from(vec![content.as_str()]),
                                                 ).context("Failed to send text output")?;
                                                 

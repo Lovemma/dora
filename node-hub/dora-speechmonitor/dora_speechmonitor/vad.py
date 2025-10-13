@@ -6,7 +6,10 @@ Thread-safe implementation for real-time speech detection.
 from typing import Optional
 import numpy as np
 import torch
+import logging
 from silero_vad import load_silero_vad
+
+logger = logging.getLogger(__name__)
 
 
 class SileroVAD:
@@ -31,14 +34,14 @@ class SileroVAD:
             threshold: Confidence threshold for speech detection (0.0-1.0)
         """
         if self._model is None:
-            print("Initializing Silero VAD model...")
+            logger.info("Initializing Silero VAD model...")
             try:
                 self._model = load_silero_vad()
                 self._model.reset_states()
                 self.threshold = threshold
-                print("Silero VAD model initialized successfully")
+                logger.info("Silero VAD model initialized successfully")
             except Exception as e:
-                print(f"Failed to initialize Silero VAD: {e}")
+                logger.error(f"Failed to initialize Silero VAD: {e}")
                 SileroVAD._instance = None
                 raise
 
@@ -90,7 +93,7 @@ class SileroVAD:
             max_prob = max(probs)
             is_speech = max_prob >= self.threshold
             return is_speech, max_prob
-            
+
         except Exception as e:
-            print(f"VAD detection error: {e}")
+            logger.error(f"VAD detection error: {e}")
             return False, 0.0

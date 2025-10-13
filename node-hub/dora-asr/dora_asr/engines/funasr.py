@@ -5,13 +5,16 @@ FunASR engine for Chinese speech recognition.
 from typing import Optional, Dict, Any
 import numpy as np
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from funasr_onnx import SeacoParaformer, CT_Transformer
     FUNASR_AVAILABLE = True
 except ImportError:
     FUNASR_AVAILABLE = False
-    print("Warning: funasr-onnx not available. Install with: pip install funasr-onnx")
+    logger.warning("funasr-onnx not available. Install with: pip install funasr-onnx")
 
 from .base import ASRInterface
 from ..utils import ensure_minimum_audio_duration, fix_spaced_uppercase
@@ -47,13 +50,13 @@ class FunASREngine(ASRInterface):
         
         asr_model_path = models_dir / asr_model_name
         punc_model_path = models_dir / punc_model_name
-        
-        print(f"Loading FunASR models from: {models_dir}")
-        
+
+        logger.info(f"Loading FunASR models from: {models_dir}")
+
         # Check if models exist
         if not asr_model_path.exists():
-            print(f"Warning: ASR model not found at {asr_model_path}")
-            print("Please download from: https://modelscope.cn/models/damo/speech_seaco_paraformer_large")
+            logger.warning(f"ASR model not found at {asr_model_path}")
+            logger.warning("Please download from: https://modelscope.cn/models/damo/speech_seaco_paraformer_large")
             raise FileNotFoundError(f"ASR model not found: {asr_model_path}")
         
         # Determine device ID based on configuration
@@ -64,56 +67,56 @@ class FunASREngine(ASRInterface):
                 providers = ort.get_available_providers()
                 if 'CUDAExecutionProvider' in providers:
                     device_id = "0"  # Use first GPU
-                    print("GPU detected, using CUDA for inference")
+                    logger.info("GPU detected, using CUDA for inference")
                 elif 'CoreMLExecutionProvider' in providers:
                     # CoreML is available on macOS but FunASR may not support it directly
-                    print("CoreML available but using CPU for FunASR")
+                    logger.info("CoreML available but using CPU for FunASR")
                 else:
-                    print("No GPU available, using CPU")
+                    logger.info("No GPU available, using CPU")
             except ImportError:
-                print("ONNX Runtime not available for GPU detection")
+                logger.warning("ONNX Runtime not available for GPU detection")
         
         try:
             # Load ASR model with device configuration
-            print(f"Loading ASR model: {asr_model_name} (device_id={device_id})")
+            logger.info(f"Loading ASR model: {asr_model_name} (device_id={device_id})")
             self.asr_model = SeacoParaformer(
-                str(asr_model_path), 
+                str(asr_model_path),
                 quantize=True,
                 device_id=device_id
             )
-            
+
             # Load punctuation model if enabled
             if self.config.ENABLE_PUNCTUATION and punc_model_path.exists():
-                print(f"Loading punctuation model: {punc_model_name}")
+                logger.info(f"Loading punctuation model: {punc_model_name}")
                 self.punc_model = CT_Transformer(
-                    str(punc_model_path), 
+                    str(punc_model_path),
                     quantize=True,
                     device_id=device_id
                 )
             else:
-                print("Punctuation model disabled or not found")
+                logger.info("Punctuation model disabled or not found")
                 self.punc_model = None
-            
+
             self.is_initialized = True
-            print("FunASR models loaded successfully")
-            
+            logger.info("FunASR models loaded successfully")
+
         except Exception as e:
-            print(f"Failed to load FunASR models: {e}")
+            logger.error(f"Failed to load FunASR models: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             raise RuntimeError(f"Failed to load FunASR models: {str(e)}")
     
     def warmup(self) -> None:
         """Warmup FunASR models"""
         if not self.is_initialized:
             return
-        
-        print("Warming up FunASR models...")
+
+        logger.info("Warming up FunASR models...")
         try:
             result = self.transcribe(self.warmup_audiodata, language='zh')
-            print("FunASR models warmed up")
+            logger.info("FunASR models warmed up")
         except Exception as e:
-            print(f"FunASR warmup failed: {e}")
+            logger.error(f"FunASR warmup failed: {e}")
     
     def transcribe(
         self,
@@ -158,7 +161,7 @@ class FunASREngine(ASRInterface):
                     try:
                         text, _ = self.punc_model(text)
                     except Exception as e:
-                        print(f"Punctuation model failed: {e}")
+                        logger.error(f"Punctuation model failed: {e}")
                 
                 # Fix formatting issues
                 text = fix_spaced_uppercase(text)
@@ -181,7 +184,7 @@ class FunASREngine(ASRInterface):
             }
             
         except Exception as e:
-            print(f"FunASR transcription error: {e}")
+            logger.error(f"FunASR transcription error: {e}")
             return {
                 'text': '',
                 'language': 'zh',

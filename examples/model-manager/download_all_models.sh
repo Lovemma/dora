@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Download All Models Script for Dora Voice Chat
-# This script downloads all required models for ASR and TTS
+# This script downloads the core models used in Dora voice chat examples.
 
 set -e  # Exit on error
 
@@ -36,47 +36,21 @@ print_header() {
 }
 
 # Check if conda environment is activated
-check_conda_env() {
-    if [[ -z "$CONDA_DEFAULT_ENV" ]]; then
-        print_warning "No conda environment is activated."
-        print_info "Please activate the dora_voice_chat environment:"
-        echo "    conda activate dora_voice_chat"
-        echo ""
-        read -p "Do you want to continue anyway? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    else
-        print_success "Conda environment activated: $CONDA_DEFAULT_ENV"
-    fi
-}
-
-# Check Python availability
-check_python() {
-    if command -v python &> /dev/null; then
-        PYTHON_VERSION=$(python --version 2>&1)
-        print_success "Python found: $PYTHON_VERSION"
-    else
-        print_error "Python not found. Please ensure Python is installed."
-        exit 1
-    fi
-}
-
 # Main function
 main() {
     print_header "Dora Model Downloader - All-in-One Script"
-    
-    # Check prerequisites
-    check_conda_env
-    check_python
+
+    if ! command -v python &> /dev/null; then
+        print_error "Python not found. Please ensure your Dora environment (see examples/setup-new-chat) is activated."
+        exit 1
+    fi
     
     # Get the script directory
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
     cd "$SCRIPT_DIR"
     
     # Total steps counter
-    TOTAL_STEPS=4
+    TOTAL_STEPS=6
     CURRENT_STEP=0
     
     # Step 1: Download FunASR models
@@ -101,13 +75,34 @@ main() {
         exit 1
     fi
     
-    # Step 3: List downloaded models
+    # Step 3: Download Kokoro base + voices
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    print_header "[$CURRENT_STEP/$TOTAL_STEPS] Downloading Kokoro TTS Package"
+    print_info "Downloading Kokoro base model and voice embeddings..."
+    if python download_models.py --download kokoro; then
+        print_success "Kokoro package downloaded successfully"
+    else
+        print_error "Failed to download Kokoro package"
+        exit 1
+    fi
+
+    # Step 4: Download default Qwen3 MLX model
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    print_header "[$CURRENT_STEP/$TOTAL_STEPS] Downloading Qwen3 MLX Model"
+    print_info "Downloading Qwen/Qwen3-8B-MLX-4bit (adjust manually if you need another size)..."
+    if python download_models.py --download Qwen/Qwen3-8B-MLX-4bit; then
+        print_success "Qwen3-8B-MLX-4bit downloaded successfully"
+    else
+        print_warning "Failed to download Qwen3-8B-MLX-4bit (you can rerun with another model ID)."
+    fi
+
+    # Step 5: List downloaded models
     CURRENT_STEP=$((CURRENT_STEP + 1))
     print_header "[$CURRENT_STEP/$TOTAL_STEPS] Verifying Downloaded Models"
     print_info "Checking all downloaded models..."
     python download_models.py --list
-    
-    # Step 4: ONNX Conversion (Optional)
+
+    # Step 6: ONNX Conversion (Optional)
     CURRENT_STEP=$((CURRENT_STEP + 1))
     print_header "[$CURRENT_STEP/$TOTAL_STEPS] ONNX Model Conversion (Optional)"
     print_info "Converting models to ONNX format can improve performance."
@@ -133,9 +128,10 @@ main() {
     echo ""
     echo "Summary:"
     echo "  ✓ FunASR models for speech recognition"
-    echo "  ✓ PrimeSpeech base models (Chinese Hubert & Roberta)"
-    echo "  ✓ G2PW model for text processing"
-    echo "  ✓ All voice files for TTS"
+    echo "  ✓ FunASR models for speech recognition"
+    echo "  ✓ PrimeSpeech base + voices (GPT-SoVITS)"
+    echo "  ✓ Kokoro base + voices"
+    echo "  ✓ Qwen3-8B-MLX-4bit (default local LLM)"
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "  ✓ ONNX conversion completed"
     fi
@@ -143,11 +139,13 @@ main() {
     echo "Model locations:"
     echo "  ASR models:        ~/.dora/models/asr/"
     echo "  PrimeSpeech models: ~/.dora/models/primespeech/"
+    echo "  Kokoro models:     ~/.dora/models/kokoro/"
+    echo "  HF cache:         ~/.cache/huggingface/hub/"
     echo ""
     echo "Next steps:"
-    echo "  1. Configure your OpenAI API key in the TOML config"
-    echo "  2. Run validation tests to ensure everything works"
-    echo "  3. Start the WebSocket server: cargo run -p dora-openai-websocket"
+    echo "  1. Configure MaaS credentials if required"
+    echo "  2. Follow examples/setup-new-chat/README.md to finish environment setup"
+    echo "  3. Run the voice chat pipelines listed in examples/mac-aec-chat"
     echo ""
     print_success "Ready to use Dora Voice Chat!"
 }

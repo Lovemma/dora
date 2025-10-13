@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Install All Packages Script for Dora Voice Chat
-# This script installs all required packages and builds Rust components
+# Install All Packages Script for Dora Voice Chat (Linux & macOS)
+# This script reinstalls required Python packages and builds Rust components
+# Use after the conda environment (dora_voice_chat) already exists.
 
 set -e  # Exit on error
 
@@ -31,18 +32,32 @@ print_header() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"
 }
 
+# Detect platform shortcut
+OS_TYPE="linux"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS_TYPE="macos"
+fi
+
 # Activate conda environment
 print_header "Activating Conda Environment"
 eval "$(conda shell.bash hook)"
-conda activate dora_voice_chat
-print_success "Activated conda environment: dora_voice_chat"
+if conda activate dora_voice_chat 2>/dev/null; then
+    print_success "Activated conda environment: dora_voice_chat"
+else
+    print_error "Conda environment 'dora_voice_chat' not found. Please create it first (see setup_new_chatbot README)."
+    exit 1
+fi
 
-# Install Ubuntu/Linux build dependencies
-print_header "Installing System Dependencies"
-print_info "Installing essential build tools and libraries..."
-sudo apt-get update
-sudo apt-get install -y gcc gfortran libopenblas-dev build-essential openssl libssl-dev
-print_success "System dependencies installed"
+# OS-specific dependency hints
+print_header "Checking System Dependencies"
+if [[ "$OS_TYPE" == "linux" ]]; then
+    print_info "Installing essential build tools and libraries via apt..."
+    sudo apt-get update
+    sudo apt-get install -y gcc gfortran libopenblas-dev build-essential openssl libssl-dev
+    print_success "System dependencies installed"
+else
+    print_info "macOS detected. Ensure command line tools/Homebrew packages (gcc, gfortran, openblas, openssl) are installed if builds fail."
+fi
 
 # Get the script directory and project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -117,14 +132,19 @@ print_header "Installation Complete!"
 echo -e "${GREEN}All packages have been successfully installed!${NC}"
 echo ""
 echo "Summary:"
-echo "  ✓ System dependencies installed"
+if [[ "$OS_TYPE" == "linux" ]]; then
+    echo "  ✓ Linux system dependencies installed"
+else
+    echo "  ✓ macOS system dependencies assumed ready"
+fi
 echo "  ✓ Python packages installed in editable mode"
 echo "  ✓ Rust and Dora CLI installed"
 echo "  ✓ Rust components built"
 echo ""
 echo "Next steps:"
 echo "  1. Download models: cd examples/model-manager && python download_models.py --download primespeech"
-echo "  2. Configure your OpenAI API key"
-echo "  3. Run the WebSocket server: cargo run -p dora-openai-websocket"
+echo "  2. Download additional models (funasr, kokoro, qwen) as needed"
+echo "  3. Configure any required API keys (e.g. OpenAI)"
+echo "  4. Run voice-chat examples under examples/mac-aec-chat"
 echo ""
 print_success "Ready to use Dora Voice Chat!"

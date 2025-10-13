@@ -129,20 +129,20 @@ def main():
         voice_config["prompt_text"] = config.PROMPT_TEXT
 
     # Validate and set text language
-    print(f"[PRIMESPEECH CONFIG] TEXT_LANG from env: '{config.TEXT_LANG}'", flush=True)
+    send_log(node, "DEBUG", f"TEXT_LANG from env: '{config.TEXT_LANG}'", config.LOG_LEVEL)
     if config.TEXT_LANG:
         validated_text_lang = validate_language_config(
             config.TEXT_LANG, "TEXT_LANG", node, config.LOG_LEVEL)
         voice_config["text_lang"] = validated_text_lang
-        print(f"[PRIMESPEECH CONFIG] Validated TEXT_LANG: '{validated_text_lang}'", flush=True)
+        send_log(node, "DEBUG", f"Validated TEXT_LANG: '{validated_text_lang}'", config.LOG_LEVEL)
 
     # Validate and set prompt language
-    print(f"[PRIMESPEECH CONFIG] PROMPT_LANG from env: '{config.PROMPT_LANG}'", flush=True)
+    send_log(node, "DEBUG", f"PROMPT_LANG from env: '{config.PROMPT_LANG}'", config.LOG_LEVEL)
     if config.PROMPT_LANG:
         validated_prompt_lang = validate_language_config(
             config.PROMPT_LANG, "PROMPT_LANG", node, config.LOG_LEVEL)
         voice_config["prompt_lang"] = validated_prompt_lang
-        print(f"[PRIMESPEECH CONFIG] Validated PROMPT_LANG: '{validated_prompt_lang}'", flush=True)
+        send_log(node, "DEBUG", f"Validated PROMPT_LANG: '{validated_prompt_lang}'", config.LOG_LEVEL)
     
     # Add inference parameters
     voice_config.update({
@@ -212,11 +212,24 @@ def main():
                 # Get text to synthesize
                 text = event["value"][0].as_py()
                 metadata = event.get("metadata", {})
-                
-                session_id = metadata.get("session_id", "default")
-                request_id = metadata.get("request_id", f"req_{total_syntheses}")
+
+                # DEBUG: Log what we received
+                send_log(node, "DEBUG", f"RECEIVED text: '{text}' (len={len(text)}, repr={repr(text)}, type={type(text).__name__})", config.LOG_LEVEL)
+
                 segment_index = metadata.get("segment_index", -1)
-                
+
+                # Skip if text is only punctuation or whitespace
+                text_stripped = text.strip()
+                if not text_stripped or all(c in '。！？.!?,，、；：""''（）【】《》\n\r\t ' for c in text_stripped):
+                    send_log(node, "DEBUG", f"SKIPPED - text is only punctuation/whitespace: '{text}'", config.LOG_LEVEL)
+                    # Send segment_complete without audio
+                    node.send_output(
+                        "segment_complete",
+                        pa.array(["skipped"]),
+                        metadata={}
+                    )
+                    continue
+
                 send_log(node, "INFO", f"Processing segment {segment_index + 1} (len={len(text)})", config.LOG_LEVEL)
                 
                 # Load models if not loaded
@@ -310,19 +323,13 @@ def main():
                                     "audio",
                                     pa.array([audio_fragment]),
                                     metadata={
-                                        "session_id": session_id,
-                                        "request_id": request_id,
                                         "segment_index": segment_index,
                                         "segments_remaining": metadata.get("segments_remaining", 0),
-                                        "conversation_id": metadata.get("conversation_id"),
-                                        "question_id": metadata.get("question_id"),  # Pass through question_id
+                                        "question_id": metadata.get("question_id", "default"),  # Pass through question_id
                                         "fragment_num": fragment_num,
                                         "sample_rate": sample_rate,
                                         "duration": fragment_duration,
                                         "is_streaming": True,
-                                        "voice": voice_name,
-                                        "language": language,
-                                        "text": text  # Add the text being synthesized
                                     }
                                 )
                         
@@ -354,33 +361,20 @@ def main():
                             "audio",
                             pa.array([audio_array]),
                             metadata={
-                                "session_id": session_id,
-                                "request_id": request_id,
                                 "segment_index": segment_index,
                                 "segments_remaining": metadata.get("segments_remaining", 0),
-                                "conversation_id": metadata.get("conversation_id"),
-                                "question_id": metadata.get("question_id"),  # Pass through question_id
+                                "question_id": metadata.get("question_id", "default"),  # Pass through question_id
                                 "sample_rate": sample_rate,
                                 "duration": audio_duration,
-                                "synthesis_time": synthesis_time,
                                 "is_streaming": False,
-                                "voice": voice_name,
-                                "language": language,
-                                "text": text  # Add the text being synthesized
                             }
                         )
                     
-                    # Send segment completion signal with metadata
+                    # Send segment completion signal
                     node.send_output(
                         "segment_complete",
                         pa.array(["completed"]),
-                        metadata={
-                            "session_id": session_id,
-                            "request_id": request_id,
-                            "segment_index": segment_index,
-                            "segments_remaining": metadata.get("segments_remaining", 0),
-                            "conversation_id": metadata.get("conversation_id")
-                        }
+                        metadata={}
                     )
                     send_log(node, "INFO", f"Sent segment_complete for segment {segment_index + 1}", config.LOG_LEVEL)
                     
@@ -406,9 +400,6 @@ def main():
                         "segment_complete",
                         pa.array(["error"]),
                         metadata={
-                            "session_id": session_id,
-                            "request_id": request_id,
-                            "segment_index": segment_index,
                             "error": str(e),
                             "error_stage": "synthesis"
                         }

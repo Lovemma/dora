@@ -79,20 +79,19 @@ def main():
             if input_id == "audio":
                 # Get audio segment
                 audio_array = event["value"].to_numpy()
-                metadata = event.get("metadata", {})
-                
-                # Extract metadata from speech monitor
-                task_id = metadata.get("task_id", "unknown")
-                segment_num = metadata.get("segment", 0)
-                sample_rate = metadata.get("sample_rate", config.SAMPLE_RATE)
-                
+                input_metadata = event.get("metadata", {})
+
+                # Extract metadata
+                segment_num = input_metadata.get("segment", 0)
+                sample_rate = input_metadata.get("sample_rate", config.SAMPLE_RATE)
+                question_id = input_metadata.get("question_id")  # Pass through question_id
+
                 # Calculate audio statistics
                 audio_stats = calculate_audio_stats(audio_array)
                 duration = audio_stats['duration']
-                
-                send_log(node, "INFO", f"Processing segment #{segment_num}", config.LOG_LEVEL)
+
+                send_log(node, "INFO", f"Processing segment #{segment_num} (question_id={question_id})", config.LOG_LEVEL)
                 send_log(node, "DEBUG", f"   Duration: {duration:.2f}s", config.LOG_LEVEL)
-                send_log(node, "DEBUG", f"   Task ID: {task_id[:8]}...", config.LOG_LEVEL)
                 
                 start_time = time.time()
                 
@@ -155,16 +154,15 @@ def main():
                     send_log(node, "DEBUG", f"Processing time: {processing_time:.3f}s", config.LOG_LEVEL)
                     send_log(node, "DEBUG", f"Speed: {duration/processing_time:.1f}x realtime", config.LOG_LEVEL)
                     
-                    # Send transcription output
+                    # Send transcription output with question_id
+                    output_metadata = {}
+                    if question_id is not None:
+                        output_metadata["question_id"] = question_id
+
                     node.send_output(
                         "transcription",
                         pa.array([full_text]),
-                        metadata={
-                            "task_id": task_id,
-                            "segment": segment_num,
-                            "duration": duration,
-                            "timestamp": time.time()
-                        }
+                        metadata=output_metadata
                     )
                     
                     # Send language detection if enabled
@@ -172,26 +170,22 @@ def main():
                         node.send_output(
                             "language_detected",
                             pa.array([detected_language]),
-                            metadata={"task_id": task_id}
+                            metadata={}
                         )
-                    
+
                     # Send processing time
                     node.send_output(
                         "processing_time",
                         pa.array([processing_time]),
-                        metadata={
-                            "task_id": task_id,
-                            "audio_duration": duration,
-                            "speed_ratio": duration / processing_time
-                        }
+                        metadata={}
                     )
-                    
+
                     # Send confidence if available
                     if config.ENABLE_CONFIDENCE_SCORE and result.get('confidence'):
                         node.send_output(
                             "confidence",
                             pa.array([result['confidence']]),
-                            metadata={"task_id": task_id}
+                            metadata={}
                         )
                     
                 except Exception as e:

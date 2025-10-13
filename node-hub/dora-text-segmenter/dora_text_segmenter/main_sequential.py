@@ -14,6 +14,23 @@ import pyarrow as pa
 from dora import Node
 
 
+def send_log(node, level, message, config_level="INFO"):
+    """Send log message through log output channel."""
+    LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
+
+    if LOG_LEVELS.get(level, 0) < LOG_LEVELS.get(config_level, 20):
+        return
+
+    formatted_message = f"[{level}] {message}"
+    log_data = {
+        "node": "text-segmenter",
+        "level": level,
+        "message": formatted_message,
+        "timestamp": time.time()
+    }
+    node.send_output("log", pa.array([json.dumps(log_data)]))
+
+
 class SequentialTextSegmenter:
     """Segments text and sends segments sequentially after TTS completion."""
     
@@ -75,17 +92,17 @@ class SequentialTextSegmenter:
         
         return segments
     
-    def send_next_segment(self, node: Node, session_id: str):
+    def send_next_segment(self, node: Node, session_id: str, log_level: str = "INFO"):
         """Send the next segment for a session."""
         if session_id not in self.sessions:
             return
-        
+
         session = self.sessions[session_id]
-        
+
         # Check if there are more segments to send
         if session["current_index"] < len(session["segments"]):
             segment = session["segments"][session["current_index"]]
-            
+
             # Send segment
             metadata = {
                 "session_id": session_id,
@@ -96,23 +113,23 @@ class SequentialTextSegmenter:
                 "is_last": session["current_index"] == len(session["segments"]) - 1,
                 "segment_text": segment
             }
-            
+
             node.send_output(
                 "text_segment",
                 pa.array([segment]),
                 metadata=metadata
             )
-            
-            print(f"[Segmenter] Sent segment {session['current_index'] + 1}/{len(session['segments'])}: {segment[:30]}...")
-            
+
+            send_log(node, "INFO", f"Sent segment {session['current_index'] + 1}/{len(session['segments'])}: {segment[:30]}...", log_level)
+
             # Mark as sent
             session["current_index"] += 1
             session["awaiting_completion"] = True
             session["last_sent_time"] = time.time()
         else:
             # All segments sent
-            print(f"[Segmenter] Session {session_id} complete - all segments sent")
-            
+            send_log(node, "INFO", f"Session {session_id} complete - all segments sent", log_level)
+
             # Send completion status
             node.send_output(
                 "status",
@@ -122,7 +139,7 @@ class SequentialTextSegmenter:
                     "total_segments": len(session["segments"])
                 }
             )
-            
+
             # Clean up session
             del self.sessions[session_id]
 
@@ -131,21 +148,22 @@ def main():
     """Main entry point for sequential text segmenter."""
     node = Node("text-segmenter")
     segmenter = SequentialTextSegmenter()
-    
-    print("[Sequential Text Segmenter] Started")
-    print(f"[Sequential Text Segmenter] Max segment length: {segmenter.max_length}")
-    
+    log_level = os.getenv("LOG_LEVEL", "INFO")
+
+    send_log(node, "INFO", "Sequential Text Segmenter started", log_level)
+    send_log(node, "INFO", f"Max segment length: {segmenter.max_length}", log_level)
+
     while True:
         event = node.next(timeout=0.5)
-        
+
         # Check for timeouts
         current_time = time.time()
         for session_id, session in list(segmenter.sessions.items()):
             if session.get("awaiting_completion", False):
                 if current_time - session.get("last_sent_time", 0) > 30:
-                    print(f"[Segmenter] Timeout for session {session_id}, forcing next segment")
+                    send_log(node, "WARNING", f"Timeout for session {session_id}, forcing next segment", log_level)
                     session["awaiting_completion"] = False
-                    segmenter.send_next_segment(node, session_id)
+                    segmenter.send_next_segment(node, session_id, log_level)
         
         if event is None:
             continue
@@ -157,13 +175,13 @@ def main():
                 metadata = event.get("metadata", {})
                 session_id = metadata.get("session_id", f"session_{time.time()}")
                 request_id = metadata.get("request_id", f"req_{time.time()}")
-                
-                print(f"\n[Segmenter] New text received ({len(text)} chars) for session {session_id}")
-                
+
+                send_log(node, "INFO", f"New text received ({len(text)} chars) for session {session_id}", log_level)
+
                 # Segment the text
                 segments = segmenter.segment_by_punctuation(text)
-                print(f"[Segmenter] Segmented into {len(segments)} parts")
-                
+                send_log(node, "INFO", f"Segmented into {len(segments)} parts", log_level)
+
                 # Initialize session
                 segmenter.sessions[session_id] = {
                     "segments": segments,
@@ -173,30 +191,30 @@ def main():
                     "last_sent_time": 0,
                     "start_time": time.time()
                 }
-                
+
                 # Send first segment immediately
-                segmenter.send_next_segment(node, session_id)
-                
+                segmenter.send_next_segment(node, session_id, log_level)
+
             elif event["id"] == "tts_complete":
                 # TTS completed a segment, send next one
                 metadata = event.get("metadata", {})
                 session_id = metadata.get("session_id")
                 segment_index = metadata.get("segment_index", -1)
-                
-                print(f"[Segmenter] TTS completed segment {segment_index + 1} for session {session_id}")
-                
+
+                send_log(node, "DEBUG", f"TTS completed segment {segment_index + 1} for session {session_id}", log_level)
+
                 if session_id in segmenter.sessions:
                     session = segmenter.sessions[session_id]
                     session["awaiting_completion"] = False
-                    
+
                     # Send next segment
-                    segmenter.send_next_segment(node, session_id)
-                    
+                    segmenter.send_next_segment(node, session_id, log_level)
+
         elif event["type"] == "STOP":
-            print("[Sequential Text Segmenter] Stopping...")
+            send_log(node, "INFO", "Sequential Text Segmenter stopping", log_level)
             break
-    
-    print("[Sequential Text Segmenter] Stopped")
+
+    send_log(node, "INFO", "Sequential Text Segmenter stopped", log_level)
 
 
 if __name__ == "__main__":

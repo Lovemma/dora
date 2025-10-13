@@ -4,6 +4,7 @@ Circular Buffer Audio Player with Backpressure Control.
 Sends buffer fullness percentage for external flow control.
 """
 
+import argparse
 import os
 import time
 import threading
@@ -123,6 +124,7 @@ class CircularBufferAudioPlayer:
     """Audio player using circular buffer."""
 
     def __init__(self, buffer_seconds=60, sample_rate=32000, blocksize=2048):
+        self.buffer_seconds = buffer_seconds
         self.sample_rate = sample_rate
         self.blocksize = blocksize
         self.buffer = CircularAudioBuffer(buffer_seconds, sample_rate)
@@ -157,6 +159,7 @@ class CircularBufferAudioPlayer:
             self.stream.stop()
             self.stream.close()
             self.playing = False
+        self.paused = True
 
     def pause(self):
         self.paused = True
@@ -170,6 +173,29 @@ class CircularBufferAudioPlayer:
         if not isinstance(audio_data, np.ndarray):
             audio_data = np.array(audio_data, dtype=np.float32)
         return self.buffer.write(audio_data)
+    
+    def set_sample_rate(self, sample_rate):
+        try:
+            new_rate = int(sample_rate)
+        except (TypeError, ValueError):
+            return
+
+        if new_rate <= 0 or new_rate == self.sample_rate:
+            return
+
+        print(f"[Audio Player] Reconfiguring for sample_rate={new_rate}Hz (previous={self.sample_rate}Hz)")
+
+        was_playing = self.playing
+        was_paused = self.paused
+
+        self.stop()
+        self.sample_rate = new_rate
+        self.buffer = CircularAudioBuffer(self.buffer_seconds, new_rate)
+
+        if was_playing:
+            self.start()
+            if not was_paused:
+                self.resume()
     
     def reset(self):
         """Reset the audio buffer and pause playback."""
@@ -186,12 +212,25 @@ def signal_handler(signum, frame):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Circular buffer audio player")
+    parser.add_argument("--sample-rate", type=int, default=32000,
+                        help="Initial playback sample rate (Hz)")
+    parser.add_argument("--buffer-seconds", type=int, default=60,
+                        help="Buffer capacity in seconds")
+    parser.add_argument("--blocksize", type=int, default=2048,
+                        help="Audio callback blocksize")
+    args = parser.parse_args()
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
         node = Node("audio-player")
-        player = CircularBufferAudioPlayer(buffer_seconds=60, sample_rate=32000, blocksize=2048)
+        player = CircularBufferAudioPlayer(
+            buffer_seconds=args.buffer_seconds,
+            sample_rate=args.sample_rate,
+            blocksize=args.blocksize,
+        )
         player.start()
 
         # Clear screen
@@ -244,18 +283,22 @@ def main():
                         # Track the question_id that triggered reset
                         reset_question_id = question_id
 
-                        # Only reset if this is a DIFFERENT question
-                        if current_question_id != question_id:
-                            # Old question in buffer - reset it
+                        # Smart reset logic
+                        if current_question_id == question_id:
+                            # Already playing the NEW question - keep it!
+                            print(f"[Audio Player] SMART RESET: Kept audio from current question_id={question_id}")
+                        elif current_question_id is None:
+                            # No audio received yet - just set flag to discard old audio
+                            discard_next_audio = True
+                            print(f"[Audio Player] SMART RESET: Set discard flag for question_id={question_id} (buffer empty)")
+                        else:
+                            # Playing OLD question - clear buffer and discard until new question arrives
                             player.reset()
                             player.pause()
                             playback_started = False
                             segments_received = 0
                             discard_next_audio = True
                             print(f"[Audio Player] SMART RESET: Cleared old question (current={current_question_id}, new={question_id})")
-                        else:
-                            # Same question - don't reset, keep playing
-                            print(f"[Audio Player] SMART RESET: Kept audio from current question_id={question_id}")
                     else:
                         # No question_id - check if it's a control command string
                         try:
@@ -297,6 +340,9 @@ def main():
                                 metadata = event.get("metadata", {})
                                 audio_question_id = metadata.get("question_id", None)
 
+                                # DEBUG: Print what we received
+                                print(f"\n[Audio Player] DEBUG: Received audio len={len(audio_data)}, question_id={audio_question_id}, discard_next_audio={discard_next_audio}", flush=True)
+
                                 # Update current_question_id from incoming audio
                                 if audio_question_id is not None:
                                     current_question_id = audio_question_id
@@ -308,8 +354,10 @@ def main():
                                         if audio_question_id == reset_question_id:
                                             # This is audio from the NEW question - stop discarding
                                             discard_next_audio = False
+                                            print(f"[Audio Player] DEBUG: Stop discarding - matched reset_question_id={reset_question_id}", flush=True)
                                         else:
                                             # Audio from old question - discard
+                                            print(f"[Audio Player] DEBUG: DISCARDING - audio question_id={audio_question_id} != reset_question_id={reset_question_id}", flush=True)
                                             continue
                                     else:
                                         # Fallback to old fragment/segment detection
@@ -318,16 +366,29 @@ def main():
 
                                         if fragment_num == 1 or segment_index == 0:
                                             discard_next_audio = False
+                                            print(f"[Audio Player] DEBUG: Stop discarding - fragment={fragment_num} or segment={segment_index} is 0", flush=True)
                                         else:
+                                            print(f"[Audio Player] DEBUG: DISCARDING - fragment={fragment_num}, segment={segment_index} (fallback)", flush=True)
                                             continue
 
                                 segment_index = metadata.get("segment_index", -1)
-                                duration = len(audio_data) / 32000.0
+
+                                incoming_rate = metadata.get("sample_rate")
+                                if incoming_rate is not None:
+                                    player.set_sample_rate(incoming_rate)
+
+                                effective_rate = float(player.sample_rate)
+                                duration = len(audio_data) / effective_rate if effective_rate > 0 else 0.0
 
                                 segments_received += 1
                                 # Don't print inline messages that would mess up the display
 
                                 player.add_audio(audio_data)
+
+                                # Print audio reception info
+                                segment_index = metadata.get("segment_index", -1)
+                                duration = len(audio_data) / effective_rate if effective_rate > 0 else 0.0
+                                print(f"[Audio Player] RECEIVED audio segment {segment_index + 1}: {len(audio_data)} samples, {duration:.3f}s duration", flush=True)
                                 
                                 # Auto-start playback as soon as we have any audio
                                 if not playback_started and len(audio_data) > 0:
@@ -408,20 +469,20 @@ def main():
                     icon = "✓"
                 
                 playback_status = "PLAYING" if (playback_started and not player.paused) else "PAUSED" if player.paused else "WAITING"
-                
+
                 # Move cursor to line 8 (after headers) and clear from there
-                print("\033[8;1H\033[J", end="")
-                
+                # print("\033[8;1H\033[J", end="")
+
                 # Display without box - single updating display
-                print(f"[{elapsed:7.1f}s] BUFFER: {status} {icon}")
-                print(f"─" * 60)
-                print(f"Buffer: [{buffer_bar}] {buffer_percent:5.1f}%")
-                print(f"        └{'─' * 9}┴{'─' * 9}┴{'─' * 9}┴{'─' * 9}┘")
-                print(f"        0s       15s      30s      45s      60s")
-                print(f"─" * 60)
-                print(f"Buffer: {buffer_seconds:5.1f}s / 60s | Status: {playback_status}")
-                print(f"Segments: {segments_received:4d} | Control: {buffer_percent:5.1f}% full")
-                
+                # print(f"[{elapsed:7.1f}s] BUFFER: {status} {icon}")
+                # print(f"─" * 60)
+                # print(f"Buffer: [{buffer_bar}] {buffer_percent:5.1f}%")
+                # print(f"        └{'─' * 9}┴{'─' * 9}┴{'─' * 9}┴{'─' * 9}┘")
+                # print(f"        0s       15s      30s      45s      60s")
+                # print(f"─" * 60)
+                # print(f"Buffer: {buffer_seconds:5.1f}s / 60s | Status: {playback_status}")
+                # print(f"Segments: {segments_received:4d} | Control: {buffer_percent:5.1f}% full")
+
                 last_visualization_time = current_time
 
     except Exception as e:

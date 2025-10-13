@@ -1,331 +1,175 @@
-# 🎙️ Voice Assistant Pipeline Architecture
+# Voice Assistant Architecture (macOS AEC Pipelines)
 
-## Overview
+This repository holds three Dora dataflows that combine acoustic echo cancellation, speech recognition, LLM/MaaS reasoning, and text-to-speech playback. The pipelines share most building blocks; the primary differences are which reasoning backend is used (local Qwen3 versus external MaaS) and which TTS (PrimeSpeech or Kokoro) delivers the final audio. This document describes every node, how the flows are wired, and key runtime properties such as audio formats.
 
-This is a complete voice assistant pipeline for macOS using Dora's dataflow architecture. It provides real-time speech interaction with acoustic echo cancellation (AEC), automatic speech recognition (ASR), large language model (LLM) processing, and text-to-speech (TTS) synthesis.
+---
 
-## System Architecture
+## 1. Node Layering
+
+| Layer | Node ID | Implementation | Key Inputs | Outputs | Notes |
+|-------|---------|----------------|------------|---------|-------|
+| Audio Capture & Echo Cancellation | `mac-aec` (dynamic) | `mac_aec_simple_segmentation.py` wrapping `dora-aec` | microphone | `audio`, `audio_segment`, `is_speaking`, `speech_started`, `speech_ended`, `question_ended`, `log` | Runs acoustic echo cancellation, drains the native buffer every 10 ms, segments speech, and emits question IDs. Audio format: 16 kHz float32. |
+| Speech Recognition | `asr` | `node-hub/dora-asr` (FunASR + optional Whisper) | `audio_segment` | `transcription`, `language_detected`, `processing_time`, `confidence`, `log` | Queue size 10. Default language `zh`, punctuation restored in-line. |
+| Reasoning (local) | `qwen3-llm` | `node-hub/dora-qwen3` (MLX) | `transcription` | `text`, `status`, `log` | Used only in `voice-chat-with-aec.yml`. Streams partial tokens as soon as they are decoded. |
+| Reasoning (MaaS) | `maas-client` | `../../target/release/dora-maas-client` | `transcription` | `text`, `status`, `log` | Present in the two `*-maas*.yml` flows. Connects to an external LLM via Playwright/browser automations. |
+| Text Buffering | `text-segmenter` | `node-hub/dora-text-segmenter` | `text`, `tts_complete`, `reset` | `text_segment`, `metrics`, `status`, `log` | Maintains a queue per question, slices streaming text into short sentences (default 5–20 chars), and honours backpressure via `segment_complete`. |
+| TTS (PrimeSpeech) | `primespeech` | `node-hub/dora-primespeech` | `text_segment` | `audio`, `segment_complete`, `log` | GPT-SoVITS Doubao voice by default. Emits 32 kHz float32 buffers. |
+| TTS (Kokoro) | `kokoro-tts` | `node-hub/dora-kokoro-tts` | `text_segment` | `audio`, `segment_complete`, `log` | Streaming-capable Kokoro pipeline. Auto-detects Chinese text and switches voices. Output is 24 kHz float32. |
+| Playback | `audio-player` (dynamic) | `audio_player.py` | `audio`, `control` | `buffer_status`, `status` | Circular buffer with smart resets keyed to `question_ended`. Accepts runtime `--sample-rate` and can auto-adjust to TTS metadata. |
+| Monitoring | `viewer` (dynamic) | `viewer.py` | `transcription`, `llm_output`, `segment`, `speech_started`, `speech_ended`, `mac_aec_log`, `asr_log`, `maas_log`/`qwen3_log`, `segmenter_log`, `kokoro_log`/`primespeech_log` | — | Consolidates transcription, segment timing, and per-node logs (INFO/WARNING/ERROR) in chronological order with color-coded output and node-specific icons. |
+
+**Audio formats**
+
+- PrimeSpeech → 32 kHz mono float32. Start the player with `python audio_player.py --sample-rate 32000` to avoid resampling.
+- Kokoro → 24 kHz mono float32. Use `python audio_player.py --sample-rate 24000` when running the Kokoro flow.
+
+Dynamic nodes (`mac-aec`, `audio-player`, `viewer`) do **not** inherit environment variables from the YAML files; update defaults directly in the Python scripts if you need to change parameters such as silence thresholds.
+
+---
+
+## 2. Dataflow Topologies
+
+All three flows follow the same backbone: capture speech → recognise text → stream responses → segment text → synthesise → play audio. The diference lies in the reasoning node and the TTS backend.
+
+### 2.1 Local Qwen3 + PrimeSpeech (`voice-chat-with-aec.yml`)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Audio Input Layer                        │
-├─────────────────────────────────────────────────────────────────┤
-│  MAC-AEC (macOS Audio Echo Cancellation)                        │
-│  • Captures microphone input                                    │
-│  • Removes speaker echo                                         │
-│  • Voice Activity Detection (VAD)                               │
-│  • Audio segmentation                                           │
-└────────────┬────────────────────────────────────────────────────┘
-             │ audio_segment
-             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                      Speech Recognition Layer                    │
-├─────────────────────────────────────────────────────────────────┤
-│  ASR (Automatic Speech Recognition)                             │
-│  • FunASR engine for Chinese                                    │
-│  • Whisper for multilingual                                     │
-│  • Real-time transcription                                      │
-│  • Language detection                                           │
-└────────────┬────────────────────────────────────────────────────┘
-             │ transcription
-             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    Language Processing Layer                     │
-├─────────────────────────────────────────────────────────────────┤
-│  Qwen3 LLM                                                      │
-│  • MLX optimized for Apple Silicon                              │
-│  • Streaming response generation                                │
-│  • Context management                                           │
-│  • Token-based history                                          │
-└────────────┬────────────────────────────────────────────────────┘
-             │ text (streaming chunks)
-             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                      Text Processing Layer                       │
-├─────────────────────────────────────────────────────────────────┤
-│  Text Segmenter                                                 │
-│  • Queue-based buffering                                        │
-│  • Intelligent chunking                                         │
-│  • Backpressure control                                         │
-│  • Punctuation filtering                                        │
-└────────────┬────────────────────────────────────────────────────┘
-             │ text_segment
-             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                      Speech Synthesis Layer                      │
-├─────────────────────────────────────────────────────────────────┤
-│  PrimeSpeech TTS                                                │
-│  • Multiple voice options                                       │
-│  • Real-time synthesis                                          │
-│  • Segment completion signals                                   │
-└────────────┬────────────────────────────────────────────────────┘
-             │ audio
-             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                        Audio Output Layer                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Audio Player                                                   │
-│  • macOS audio output                                           │
-│  • Buffer management                                            │
-│  • Playback control                                             │
-└─────────────────────────────────────────────────────────────────┘
+microphone
+  │
+  ▼
+mac-aec  ──segment→  asr  ──text→  qwen3-llm  ──chunks→  text-segmenter  ──segments→  primespeech  ──audio→  audio-player
+  │              │                             │                              │
+  └──events──────┴──────────────────────────────┴──────────────────────────────┴──backpressure (segment_complete)
 ```
 
-## Component Details
+- Qwen3 runs locally using MLX on Apple Silicon; responses are streamed token-by-token.
+- PrimeSpeech converts every segment to 32 kHz audio and acknowledges via `segment_complete`.
+- Feedback: `question_ended` from `mac-aec` resets the segmenter queue and clears the player buffer; `segment_complete` throttles upstream output.
 
-### 1. MAC-AEC (macOS Audio Echo Cancellation)
-- **Type**: Dynamic node (`mac_aec_simple_segmentation.py`)
-- **Function**: Captures microphone input with echo cancellation
-- **Critical Implementation**:
-  - **MUST drain audio buffer completely** (loop until `get_audio_data()` returns None)
-  - **Poll every 10ms** (not 33ms) to avoid missing audio
-  - **Send ALL frames**, not just samples (was losing 97% of audio!)
-  - **Uses `dora-aec` library** (NOT `dora-mac-aec` which lacks proper AEC)
-  - **Format conversion**: int16 bytes → float32 arrays for ASR
-- **Outputs**:
-  - `audio`: Continuous audio stream (ALL frames)
-  - `is_speaking`: Boolean speech detection
-  - `speech_started`: Event when speech begins
-  - `speech_ended`: Event when speech ends
-  - `audio_segment`: Segmented audio for ASR (float32)
+### 2.2 MaaS LLM + PrimeSpeech (`voice-chat-with-aec-maas.yml`)
 
-### 2. ASR (Automatic Speech Recognition)
-- **Path**: `../../node-hub/dora-asr`
-- **Engine**: FunASR (default) or Whisper
-- **Configuration**:
-  - Language: Chinese (`zh`) or auto-detect
-  - Punctuation restoration enabled
-  - Confidence scoring available
-- **Queue Size**: 10 segments buffered
-
-### 3. Qwen3 LLM
-- **Path**: `../../node-hub/dora-qwen3`
-- **Model**: Qwen3-32B-MLX-6bit (configurable)
-- **Features**:
-  - MLX acceleration on Apple Silicon
-  - Streaming output for fast response
-  - Token-based history management (3000 tokens)
-  - Configurable temperature and max tokens
-
-### 4. Text Segmenter
-- **Path**: `../../node-hub/dora-text-segmenter/dora_text_segmenter/queue_based_segmenter.py`
-- **Function**: Buffers LLM output and sends to TTS one segment at a time
-- **Features**:
-  - No deadlock - first segment sent immediately
-  - Skips punctuation-only segments
-  - Queue-based with backpressure control
-
-### 5. PrimeSpeech TTS
-- **Path**: `../../node-hub/dora-primespeech`
-- **Voices**: Doubao, Luo Xiang, Yang Mi, Zhou Jielun, Ma Yun, Maple, Cove
-- **Features**:
-  - Chinese and English support
-  - Internal text segmentation for long texts
-  - Segment completion signals for flow control
-
-### 6. Audio Player
-- **Type**: Dynamic node
-- **Function**: Plays synthesized audio through system speakers
-- **Features**:
-  - Buffer status reporting
-  - Real-time playback
-
-### 7. Viewer (Optional)
-- **Type**: Dynamic node
-- **Function**: Visual monitoring of the pipeline
-- **Monitors**:
-  - ASR transcriptions
-  - LLM outputs
-  - Text segments
-  - Speech events
-
-## Data Flow
-
-### 1. Speech Input Flow
 ```
-Microphone → MAC-AEC → VAD Detection → Audio Segmentation → ASR
+mac-aec → asr → maas-client → text-segmenter → primespeech → audio-player
 ```
 
-### 2. Processing Flow
-```
-ASR Transcription → Qwen3 LLM → Streaming Text → Text Segmenter → TTS
-```
+- Identical front end; the reasoning node is the MaaS client, which emits streaming text from your configured provider.
+- PrimeSpeech remains the TTS stage at 32 kHz.
 
-### 3. Audio Output Flow
-```
-TTS Audio → Audio Player → System Speakers
-```
+### 2.3 MaaS LLM + Kokoro (`voice-chat-with-aec-maas-kokoro.yml`)
 
-### 4. Feedback Loop
 ```
-TTS Completion → Text Segmenter → Next Segment
+mac-aec → asr → maas-client → text-segmenter → kokoro-tts → audio-player
 ```
 
-## Key Features
+- Same ASR + MaaS arrangement as the previous flow.
+- Kokoro performs low-latency TTS at 24 kHz. The audio player should be started with the matching sample rate to avoid playback speed changes.
 
-### Real-time Processing
-- Streaming LLM responses begin before full generation
-- TTS starts synthesizing before full text is available
-- Pipeline processes segments in parallel
+---
 
-### Echo Cancellation
-- Removes speaker output from microphone input
-- Prevents feedback loops
-- Enables hands-free operation
+## 3. Launch Sequence
 
-### Intelligent Segmentation
-- VAD-based audio segmentation
-- Text chunking for optimal TTS
-- Queue management prevents data loss
+Each dataflow requires four terminals: one for Dora itself and three for the dynamic nodes.
 
-### History Management
-- Token-based conversation history
-- Automatic trimming to stay within limits
-- Context preservation across turns
+1. **Terminal 1 – start/stop Dora graph**
+   ```bash
+   dora stop
+   dora start <dataflow-yaml>
+   ```
+2. **Terminal 2 – start AEC capture**
+   ```bash
+   python mac_aec_simple_segmentation.py
+   ```
+3. **Terminal 3 – start audio playback**
+   ```bash
+   # PrimeSpeech flows
+   python audio_player.py --sample-rate 32000
 
-## Configuration
+   # Kokoro flow
+   python audio_player.py --sample-rate 24000
+   ```
+4. **Terminal 4 (optional) – open the viewer**
+   ```bash
+   python viewer.py
+   ```
 
-### Model Selection
-Models can be changed via environment variables:
-- `MLX_MODEL`: LLM model (e.g., "Qwen/Qwen3-14B-MLX-4bit")
-- `WHISPER_MODEL`: ASR model (e.g., "large-v3")
-- `VOICE_NAME`: TTS voice selection
+The viewer renders a time-series dashboard of transcription, LLM/MaaS output, segmentation events, and per-node logs, which is invaluable for diagnosing backpressure or timing issues.
 
-### Performance Tuning
-- `MAX_TOKENS`: LLM response length
-- `TEMPERATURE`: LLM creativity (0.0-1.0)
-- `MAX_HISTORY_EXCHANGES`: Conversation memory
-- `QUEUE_SIZE`: ASR buffer size
+---
 
-### Language Settings
-- `LANGUAGE`: ASR language (zh/en/auto)
-- `TEXT_LANG`: TTS language
-- `ENABLE_PUNCTUATION`: Punctuation restoration
+## 4. Logging Architecture
 
-## System Requirements
+All nodes implement unified structured logging that outputs to dedicated `log` channels:
 
-### Hardware
-- **macOS**: Required for MAC-AEC
-- **Apple Silicon**: Recommended for MLX acceleration
-- **RAM**: 16GB minimum, 32GB recommended
-- **Storage**: 50GB for models
-
-### Software
-- **Dora**: Latest version
-- **Python**: 3.8+
-- **Dependencies**: See node-hub requirements
-
-## Performance Characteristics
-
-### Latency
-- **First response**: 1-2 seconds
-- **Speech detection**: <100ms
-- **ASR processing**: 200-500ms
-- **LLM first token**: 500ms-1s
-- **TTS synthesis**: 100-300ms per segment
-
-### Throughput
-- **Audio**: 16kHz sampling rate
-- **ASR**: Real-time factor ~0.3
-- **LLM**: 20-50 tokens/second
-- **TTS**: 2-3x real-time
-
-### Resource Usage
-- **CPU**: 20-40% average
-- **GPU**: 60-80% during inference
-- **RAM**: 8-12GB for models
-- **Network**: Offline capable
-
-## Error Handling
-
-### Graceful Degradation
-- Falls back to CPU if GPU unavailable
-- Continues with partial transcriptions
-- Skips corrupted audio segments
-
-### Recovery Mechanisms
-- Automatic reconnection on node failure
-- Queue persistence prevents data loss
-- History recovery from cache
-
-## Monitoring
-
-The pipeline provides comprehensive monitoring through:
-- Log outputs from each node
-- Visual viewer for real-time status
-- Performance metrics in logs
-- Buffer status indicators
-
-## Critical Lessons Learned (Golden Version)
-
-### Audio Capture Issues & Solutions
-
-#### Problem 1: Lost 97% of Audio
-- **Issue**: Only sending every 30th frame
-- **Solution**: Send EVERY frame continuously
-```python
-# WRONG
-if frame_count % 30 == 0:
-    node.send_output("audio", ...)
-
-# CORRECT
-node.send_output("audio", pa.array(audio_frame, type=pa.float32()))
+**Log Message Format:**
+```json
+{
+  "node": "primespeech",
+  "level": "INFO",
+  "message": "[INFO] Using MoYoYo TTS implementation",
+  "timestamp": 1234567890.123
+}
 ```
 
-#### Problem 2: Buffer Not Drained
-- **Issue**: Only getting one chunk per cycle, missing buffered audio
-- **Solution**: Drain ALL available chunks
-```python
-# WRONG
-audio_data, vad = aec.get_audio_data()
+**Log Levels:**
+- **DEBUG**: Detailed execution traces (filtered by default in viewer)
+- **INFO**: Standard operational messages
+- **WARNING**: Non-critical issues that don't stop execution
+- **ERROR**: Critical failures with tracebacks
 
-# CORRECT
-all_audio = []
-while True:
-    audio_data, vad = aec.get_audio_data()
-    if audio_data is None:
-        break
-    all_audio.append(audio_data)
+**Logging Implementation:**
+- **Python nodes with Dora context** (runtime): Use `send_log(node, level, message, config_level)` which outputs to both console and Dora log channel
+- **Python modules at import time**: Use standard `logging` module (console only, before node starts)
+- **Rust nodes**: Implement equivalent structured logging to Dora channels
+
+**Environment Control:**
+All nodes respect the `LOG_LEVEL` environment variable in their YAML configuration. Set to `DEBUG` for detailed traces:
+```yaml
+env:
+  LOG_LEVEL: DEBUG  # DEBUG, INFO, WARNING, ERROR
 ```
 
-#### Problem 3: Echo Not Cancelled
-- **Issue**: Using `dora-mac-aec` which doesn't enable AEC properly
-- **Solution**: Use `dora-aec` with proper VoiceProcessingIO implementation
+**Viewer Integration:**
+The viewer aggregates logs from all nodes and displays them with:
+- Timestamps for every event
+- Color coding (❌ RED for errors, ⚠️ YELLOW for warnings, CYAN for info)
+- Node-specific icons (🎙️ 🎤 🤖 🧠 ✂️ 🔊 🗣️)
 
-#### Problem 4: Polling Too Slow
-- **Issue**: 33ms intervals created gaps in audio
-- **Solution**: Poll every 10ms for continuous capture
+This centralized logging makes debugging pipeline issues much easier, as all node activity is visible in a single chronological stream.
 
-### VAD Segmentation Parameters
-- **Speech start**: 3 consecutive voice frames
-- **Speech end**: 10 consecutive silence frames  
-- **Min segment**: 0.3 seconds (4800 samples)
-- **Max segment**: 10 seconds (160000 samples)
+---
 
-### Audio Format Pipeline
-```
-Native Library → int16 bytes
-    ↓ np.frombuffer(dtype=np.int16)
-Numpy int16 array
-    ↓ .astype(np.float32) / 32768.0
-Float32 array [-1.0, 1.0]
-    ↓ pa.array(type=pa.float32())
-PyArrow array → ASR
-```
+## 5. Internal Communication & Backpressure
 
-## Extension Points
+- `mac-aec` sends `question_ended` to both the text segmenter and audio player to flush stale data whenever the user pauses for the configured duration (default ≈600 ms silence).
+- `text-segmenter` defers sending the next chunk until it receives `segment_complete` from the active TTS node, preventing audio overlap.
+- `audio-player` publishes `buffer_status` continuously; downstream consumers (for example the viewer) can react if the buffer underruns.
+- All TTS audio is streamed as `pa.array([numpy_array])` so Arrow preserves the whole chunk; downstream nodes must convert back to NumPy (`value[0].as_py()`).
 
-### Custom Models
-- Replace ASR with custom engines
-- Use different LLM models
-- Add custom TTS voices
+---
 
-### Additional Processing
-- Add translation nodes
-- Insert sentiment analysis
-- Include custom filters
+## 6. Key Implementation Notes
 
-### Integration
-- Connect to external services
-- Add database logging
-- Implement custom protocols
+1. **MAC-AEC wrapper**
+   - Drains native buffers in a tight loop (otherwise 97 % of audio frames are lost).
+   - Polls every 10 ms to enforce accurate silence timing.
+   - Converts int16 PCM → float32 before publishing.
+
+2. **ASR**
+   - FunASR models live under `~/.dora/models/asr` by default; `ASR_MODELS_DIR` can be set for custom locations.
+
+3. **TTS model storage**
+   - PrimeSpeech: `~/.dora/models/primespeech` plus placeholders for GPT/SoVITS weights and reference audio.
+   - Kokoro: `~/.dora/models/kokoro` for `config.json`, `kokoro-v1_0.pth`, and `voices/*.pt`; the Hugging Face cache (`~/.cache/huggingface/hub/hexgrad--Kokoro-82M`) is kept warm during downloads for offline use.
+
+4. **Audio player**
+   - Automatically rebuilds its buffer if incoming metadata reports a different `sample_rate`, but passing the correct rate on the command line prevents transient underruns.
+
+---
+
+## 7. Extending the Pipelines
+
+- Swap in alternative LLMs by editing the YAML to point to another reasoning node (e.g. a local GGUF model) while reusing `text-segmenter` and the chosen TTS.
+- To experiment with other voices, download them via the model manager (`python ../model-manager/download_models.py --voice <PrimeSpeechVoice>` or `--kokoro-voice <voice>`).
+- The viewer is modular—extend it to display additional metrics (e.g. ASR confidence, MaaS latency) by subscribing to the relevant outputs.
+
+These architectural notes should help you understand and modify the macOS AEC voice assistant flows without re-reading the node implementations.

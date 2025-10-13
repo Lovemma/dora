@@ -1,0 +1,121 @@
+nodes:
+  # MAC-AEC with VAD-based segmentation
+  - id: mac-aec
+    path: dynamic
+    outputs:
+      - audio
+      - is_speaking
+      - speech_started
+      - speech_ended
+      - audio_segment
+      - question_ended
+      - log
+
+  # ASR transcription
+  - id: asr
+    build: pip install -e ../../node-hub/dora-asr
+    path: dora-asr
+    inputs:
+      audio:
+        source: mac-aec/audio_segment
+        queue_size: 10
+    outputs:
+      - transcription
+      - language_detected
+      - processing_time
+      - confidence
+      - log
+    env:
+      ASR_ENGINE: funasr
+      LANGUAGE: zh
+      WHISPER_MODEL: large
+      ENABLE_PUNCTUATION: true
+      ENABLE_LANGUAGE_DETECTION: true
+      ENABLE_CONFIDENCE_SCORE: false
+      ASR_MODELS_DIR: $HOME/.dora/models/asr # Relative path (recommended)
+      LOG_LEVEL: INFO
+
+  # MaaS Client with Playwright Browser Tools
+  - id: maas-client
+    # Run as a static node using the prebuilt binary
+    path: ../../target/release/dora-maas-client
+    inputs:
+      text: asr/transcription  # Direct from ASR
+    outputs:
+      - text
+      - status
+      - log
+    env:
+      # Local config file in mac-aec-chat directory
+      MAAS_CONFIG_PATH: maas_config.local.toml
+      # Pass OpenAI API key directly to the node
+      OPENAI_API_KEY: env:OPENAI_API_KEY
+      LOG_LEVEL: INFO
+
+  # Text Segmenter - buffers LLM output and sends to TTS one segment at a time
+  - id: text-segmenter
+    build: pip install -e ../../node-hub/dora-text-segmenter
+    path: dora-text-segmenter
+    inputs:
+      text: maas-client/text  # From MaaS Client
+      tts_complete: kokoro-tts/segment_complete  # TTS completion signal (changed from primespeech)
+      reset: mac-aec/question_ended  # Clear queue when new question detected
+    outputs:
+      - text_segment
+      - status
+      - metrics
+      - log
+    env:
+      ENABLE_BACKPRESSURE: "false"  # Don't wait initially - send first segment immediately
+      SEGMENT_MODE: "sentence"  # sentence, punctuation, or fixed
+      MIN_SEGMENT_LENGTH: "5"
+      MAX_SEGMENT_LENGTH: "20"
+      PUNCTUATION_MARKS: "。！？.!?"
+      LOG_LEVEL: "INFO"
+
+  # Kokoro TTS - Fast multi-language TTS (replacing PrimeSpeech)
+  - id: kokoro-tts
+    build: pip install -e ../../node-hub/dora-kokoro-tts
+    path: dora-kokoro-tts
+    inputs:
+      text:
+        source: text-segmenter/text_segment  # From text segmenter (not directly from LLM)
+        queue_size: 10
+    outputs:
+      - audio
+      - segment_complete  # For backpressure control
+      - log
+    env:
+      # Language and voice settings
+      LANGUAGE: en  # en, zh, ja, ko (auto-detects Chinese characters)
+      VOICE: af_bella  # Voice selection (af_heart, bf_emma, am_adam, etc.)
+      SPEED: "1.0"  # Speech speed multiplier (0.5-2.0)
+
+      # Logging
+      LOG_LEVEL: DEBUG  # DEBUG for testing
+
+  # Audio player
+  - id: audio-player
+    path: dynamic
+    inputs:
+      audio: kokoro-tts/audio  # Changed from primespeech to kokoro-tts
+      control: mac-aec/question_ended  # Reset buffer when new question detected
+    outputs:
+      - buffer_status
+      - status
+
+  # Simple viewer to see the flow
+  - id: viewer
+    path: dynamic
+    inputs:
+      transcription: asr/transcription
+      llm_output: maas-client/text
+      segment: text-segmenter/text_segment
+      speech_started: mac-aec/speech_started
+      speech_ended: mac-aec/speech_ended
+      # Log outputs from all nodes
+      mac_aec_log: mac-aec/log
+      asr_log: asr/log
+      maas_log: maas-client/log
+      segmenter_log: text-segmenter/log
+      kokoro_log: kokoro-tts/log

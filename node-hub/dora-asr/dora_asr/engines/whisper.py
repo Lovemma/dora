@@ -4,13 +4,16 @@ Whisper ASR engine using pywhispercpp.
 
 from typing import Optional, Dict, Any
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from pywhispercpp.model import Model
     WHISPER_AVAILABLE = True
 except ImportError:
     WHISPER_AVAILABLE = False
-    print("Warning: pywhispercpp not available. Install with: pip install pywhispercpp")
+    logger.warning("pywhispercpp not available. Install with: pip install pywhispercpp")
 
 from .base import ASRInterface
 from ..utils import ensure_minimum_audio_duration, detect_language_from_text
@@ -50,24 +53,24 @@ class WhisperEngine(ASRInterface):
         }
         
         model_name = model_mapping.get(model_name, model_name)
-        
-        print(f"Loading Whisper model: {model_name}")
-        print(f"Models directory: {models_dir}")
-        
+
+        logger.info(f"Loading Whisper model: {model_name}")
+        logger.info(f"Models directory: {models_dir}")
+
         try:
             self.model = Model(model=model_name, models_dir=str(models_dir))
             self.is_initialized = True
-            print(f"Whisper model loaded successfully")
+            logger.info(f"Whisper model loaded successfully")
         except Exception as e:
-            print(f"Failed to load Whisper model: {e}")
+            logger.error(f"Failed to load Whisper model: {e}")
             raise
     
     def warmup(self) -> None:
         """Warmup Whisper model"""
         if not self.is_initialized:
             return
-        
-        print("Warming up Whisper model...")
+
+        logger.info("Warming up Whisper model...")
         try:
             # Use a simple transcribe call for warmup
             self.model.transcribe(
@@ -75,9 +78,9 @@ class WhisperEngine(ASRInterface):
                 language='en',
                 print_progress=False
             )
-            print("Whisper model warmed up")
+            logger.info("Whisper model warmed up")
         except Exception as e:
-            print(f"Whisper warmup failed: {e}")
+            logger.error(f"Whisper warmup failed: {e}")
     
     def transcribe(
         self,
@@ -164,7 +167,7 @@ class WhisperEngine(ASRInterface):
             }
             
         except Exception as e:
-            print(f"Whisper transcription error: {e}")
+            logger.error(f"Whisper transcription error: {e}")
             return {
                 'text': '',
                 'language': 'unknown',

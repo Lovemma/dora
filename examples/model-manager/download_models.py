@@ -131,6 +131,236 @@ VOICE_CONFIGS = {
     }
 }
 
+# Kokoro TTS configuration
+KOKORO_DEFAULT_REPO = "hexgrad/Kokoro-82M"
+KOKORO_MODEL_FILES = [
+    "config.json",
+    "kokoro-v1_0.pth",
+]
+
+
+def get_kokoro_models_dir() -> Path:
+    """Default storage location for Kokoro models."""
+    kokoro_dir = os.getenv("KOKORO_MODEL_DIR")
+    if kokoro_dir:
+        return Path(kokoro_dir)
+    return Path.home() / ".dora" / "models" / "kokoro"
+
+
+def download_kokoro_base(models_dir: Path, repo_id: str = KOKORO_DEFAULT_REPO) -> bool:
+    """Download Kokoro base model files (config + checkpoint)."""
+    if not HF_AVAILABLE:
+        print("❌ huggingface-hub is required to download Kokoro models")
+        return False
+
+    models_dir = Path(models_dir)
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    success = True
+    print("\n📥 Downloading Kokoro base files")
+    for filename in KOKORO_MODEL_FILES:
+        target_path = models_dir / filename
+        if target_path.exists():
+            print(f"   ✓ {filename} (already present)")
+            continue
+        try:
+            print(f"   ⬇️  {filename}")
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=str(models_dir),
+                local_dir_use_symlinks=False,
+            )
+            print(f"   ✓ Saved to {target_path}")
+        except Exception as exc:
+            print(f"   ❌ Failed to download {filename}: {exc}")
+            success = False
+
+    # Keep HuggingFace cache in sync so the repo is available offline later
+    try:
+        print(f"   ↻ Updating HuggingFace cache for {repo_id}")
+        snapshot_download(repo_id=repo_id, resume_download=True)
+        print("   ✓ HuggingFace cache updated")
+    except Exception as exc:
+        print(f"   ⚠️ Could not refresh HuggingFace cache: {exc}")
+
+    return success
+
+
+def get_available_kokoro_voices(repo_id: str = KOKORO_DEFAULT_REPO) -> List[str]:
+    """Return the list of available Kokoro voice embeddings in the repo."""
+    if not HF_AVAILABLE:
+        return []
+    try:
+        files = list_repo_files(repo_id)
+    except Exception as exc:
+        print(f"❌ Unable to list Kokoro voices: {exc}")
+        return []
+    voices = sorted(
+        {
+            Path(f).name
+            for f in files
+            if f.startswith("voices/") and f.endswith(".pt")
+        }
+    )
+    return voices
+
+
+def download_kokoro_voices(
+    voice: str,
+    models_dir: Path,
+    repo_id: str = KOKORO_DEFAULT_REPO,
+) -> bool:
+    """Download one or more Kokoro voice embeddings."""
+    if not HF_AVAILABLE:
+        print("❌ huggingface-hub is required to download Kokoro voices")
+        return False
+
+    available = get_available_kokoro_voices(repo_id)
+    if not available:
+        print("⚠️ No Kokoro voices discovered; cannot download")
+        return False
+
+    if voice.lower() == "all":
+        requested = available
+    else:
+        requested = []
+        for item in voice.split(","):
+            normalized = item.strip()
+            if not normalized:
+                continue
+            if not normalized.endswith(".pt"):
+                normalized = f"{normalized}.pt"
+            if normalized not in available:
+                print(f"❌ Voice '{normalized}' not found in {repo_id}")
+                print(f"   Available voices: {', '.join(available)}")
+                return False
+            requested.append(normalized)
+
+    if not requested:
+        print("⚠️ No Kokoro voices selected for download")
+        return False
+
+    models_dir = Path(models_dir)
+    models_dir.mkdir(parents=True, exist_ok=True)
+    (models_dir / "voices").mkdir(parents=True, exist_ok=True)
+
+    success = True
+    print("\n📥 Downloading Kokoro voices")
+    for voice_file in requested:
+        filename = f"voices/{voice_file}"
+        target_path = models_dir / filename
+        if target_path.exists():
+            print(f"   ✓ {voice_file} (already present)")
+            continue
+        try:
+            print(f"   ⬇️  {voice_file}")
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=str(models_dir),
+                local_dir_use_symlinks=False,
+            )
+            print(f"   ✓ Saved to {target_path}")
+        except Exception as exc:
+            print(f"   ❌ Failed to download {voice_file}: {exc}")
+            success = False
+    return success
+
+
+def download_kokoro_package(models_dir: Path, repo_id: str = KOKORO_DEFAULT_REPO) -> bool:
+    """Download Kokoro base files and all voices."""
+    print("\n📦 Downloading Kokoro TTS package")
+    base_ok = download_kokoro_base(models_dir, repo_id=repo_id)
+    voices_ok = download_kokoro_voices("all", models_dir, repo_id=repo_id)
+    return base_ok and voices_ok
+
+
+def remove_kokoro_base(models_dir: Path) -> bool:
+    """Remove Kokoro base files."""
+    models_dir = Path(models_dir)
+    removed_any = False
+    for filename in KOKORO_MODEL_FILES:
+        path = models_dir / filename
+        if path.exists():
+            try:
+                path.unlink()
+                print(f"   🗑️ Removed {path}")
+                removed_any = True
+            except Exception as exc:
+                print(f"   ❌ Failed to remove {path}: {exc}")
+    if not removed_any:
+        print("   (No Kokoro base files found to remove)")
+    else:
+        print("   ✓ Kokoro base files removed")
+
+    # Also drop the HuggingFace cache snapshot to free space
+    try:
+        cache_removed = remove_huggingface_model(KOKORO_DEFAULT_REPO)
+        if cache_removed:
+            print(f"   🗑️ Removed HuggingFace cache for {KOKORO_DEFAULT_REPO}")
+    except Exception as exc:
+        print(f"   ⚠️ Failed to remove HuggingFace cache: {exc}")
+    return True
+
+
+def remove_kokoro_voices(voice: str, models_dir: Path) -> bool:
+    """Remove Kokoro voice files."""
+    voices_dir = Path(models_dir) / "voices"
+    if not voices_dir.exists():
+        print("   (No Kokoro voices directory found)")
+        return True
+
+    if voice.lower() == "all":
+        try:
+            shutil.rmtree(voices_dir)
+            print(f"   🗑️ Removed {voices_dir}")
+        except Exception as exc:
+            print(f"   ❌ Failed to remove {voices_dir}: {exc}")
+            return False
+        return True
+
+    success = True
+    for item in voice.split(","):
+        normalized = item.strip()
+        if not normalized:
+            continue
+        if not normalized.endswith(".pt"):
+            normalized = f"{normalized}.pt"
+        file_path = voices_dir / normalized
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                print(f"   🗑️ Removed {file_path}")
+            except Exception as exc:
+                print(f"   ❌ Failed to remove {file_path}: {exc}")
+                success = False
+        else:
+            print(f"   (Voice file not found: {file_path})")
+    return success
+
+
+def remove_kokoro_package(models_dir: Path) -> bool:
+    """Remove all Kokoro assets."""
+    ok_base = remove_kokoro_base(models_dir)
+    ok_voices = remove_kokoro_voices("all", models_dir)
+    return ok_base and ok_voices
+
+
+def list_local_kokoro_voices(models_dir: Path) -> Dict[str, float]:
+    """Return mapping of local Kokoro voice filenames to size in MB."""
+    voices_dir = Path(models_dir) / "voices"
+    if not voices_dir.exists():
+        return {}
+    voices = {}
+    for file_path in sorted(voices_dir.glob("*.pt")):
+        try:
+            size_mb = file_path.stat().st_size / (1024 ** 2)
+        except OSError:
+            size_mb = 0.0
+        voices[file_path.stem] = size_mb
+    return voices
+
 # Standalone helper functions for PrimeSpeech models
 def get_primespeech_models_dir():
     """Get the PrimeSpeech models directory."""
@@ -1164,14 +1394,20 @@ def main():
     parser.add_argument(
         "--download",
         type=str,
-        help="Model to download: 'funasr' for FunASR models, 'primespeech' for complete TTS package, 'primespeech-base' for base models only, 'g2pw' for G2PW model, or HuggingFace repo ID"
+        help=(
+            "Model to download: 'funasr', 'primespeech', 'primespeech-base', 'g2pw', 'kokoro', "
+            "'kokoro-base', 'kokoro-voices', or a HuggingFace repo ID"
+        )
     )
     
     # Add --remove argument
     parser.add_argument(
         "--remove",
         type=str,
-        help="Model to remove: 'funasr' for FunASR models, voice name, 'all-voices', or HuggingFace repo ID"
+        help=(
+            "Model to remove: 'funasr', 'g2pw', voice name, 'all-voices', 'primespeech-base', "
+            "'kokoro', 'kokoro-base', 'kokoro-voices', or HuggingFace repo ID"
+        )
     )
     
     # HuggingFace-specific arguments
@@ -1210,6 +1446,18 @@ def main():
         help="Directory to store models (default: ~/.dora/models/primespeech)"
     )
     parser.add_argument(
+        "--kokoro-dir",
+        type=str,
+        default=None,
+        help="Directory to store Kokoro models (default: ~/.dora/models/kokoro)"
+    )
+    parser.add_argument(
+        "--kokoro-voice",
+        type=str,
+        default=None,
+        help="Kokoro voice to download (e.g., af_heart or 'all')"
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List all downloaded models"
@@ -1220,8 +1468,14 @@ def main():
         action="store_true",
         help="List available PrimeSpeech voices"
     )
+    parser.add_argument(
+        "--list-kokoro-voices",
+        action="store_true",
+        help="List available Kokoro voices"
+    )
     
     args = parser.parse_args()
+    kokoro_models_dir = Path(args.kokoro_dir) if args.kokoro_dir else get_kokoro_models_dir()
     
     # Handle --list (show all downloaded models)
     if args.list:
@@ -1266,6 +1520,19 @@ def main():
             print("  python download_models.py --voice <voice_name>")
             print("  python download_models.py --voice all")
         return
+
+    if args.list_kokoro_voices:
+        available = get_available_kokoro_voices()
+        if not available:
+            print("\n⚠️ Unable to retrieve Kokoro voice list (check network or huggingface-hub installation)")
+            return
+
+        print("\nKokoro Voices:")
+        print("=" * 60)
+        for voice_file in available:
+            print(f"  {voice_file[:-3] if voice_file.endswith('.pt') else voice_file}")
+        print(f"\nTotal voices: {len(available)}")
+        return
     
     # Get models directory for PrimeSpeech operations
     if args.models_dir:
@@ -1275,7 +1542,10 @@ def main():
     
     # Only print for PrimeSpeech operations
     if args.voice or (args.download and args.download == "primespeech-base"):
-        print(f"\nModels directory: {models_dir}")
+        print(f"\nPrimeSpeech models directory: {models_dir}")
+
+    if args.kokoro_voice or (args.download and args.download.startswith("kokoro")):
+        print(f"\nKokoro models directory: {kokoro_models_dir}")
     
     # Handle --download argument
     if args.download:
@@ -1303,6 +1573,18 @@ def main():
         elif args.download == "g2pw":
             # Download G2PW model
             success = download_g2pw_model()
+            if not success:
+                sys.exit(1)
+        elif args.download == "kokoro-base":
+            success = download_kokoro_base(kokoro_models_dir)
+            if not success:
+                sys.exit(1)
+        elif args.download == "kokoro-voices":
+            success = download_kokoro_voices("all", kokoro_models_dir)
+            if not success:
+                sys.exit(1)
+        elif args.download == "kokoro":
+            success = download_kokoro_package(kokoro_models_dir)
             if not success:
                 sys.exit(1)
         elif args.download == "primespeech":
@@ -1350,6 +1632,9 @@ def main():
             print("   - 'primespeech' for complete PrimeSpeech package (base + G2PW + all voices)")
             print("   - 'primespeech-base' for PrimeSpeech base models only")
             print("   - 'g2pw' for G2PW model only")
+            print("   - 'kokoro' for Kokoro base + all voices")
+            print("   - 'kokoro-base' for Kokoro base files only")
+            print("   - 'kokoro-voices' for all Kokoro voices only")
             print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
             print("   - HuggingFace repo ID (e.g., 'organization/model')")
             sys.exit(1)
@@ -1362,30 +1647,44 @@ def main():
         else:
             models_dir = get_primespeech_models_dir()
         
+        remove_lower = args.remove.lower()
+
         # Check if it's a HuggingFace repo (contains '/')
         if '/' in args.remove:
             # It's a HuggingFace repo ID
             success = remove_huggingface_model(args.remove)
             if not success:
                 sys.exit(1)
-        elif args.remove == "funasr":
+        elif remove_lower == "funasr":
             # Remove FunASR models
             success = remove_funasr_models()
             if not success:
                 sys.exit(1)
-        elif args.remove == "all-voices":
+        elif remove_lower == "all-voices":
             # Remove all voice models
             success = remove_voice_models("all", models_dir)
             if not success:
                 sys.exit(1)
-        elif args.remove == "g2pw":
+        elif remove_lower == "g2pw":
             # Remove G2PW model
             success = remove_g2pw_model()
             if not success:
                 sys.exit(1)
-        elif args.remove == "primespeech-base":
+        elif remove_lower == "primespeech-base":
             # Remove base models
             success = remove_primespeech_base_models(models_dir)
+            if not success:
+                sys.exit(1)
+        elif remove_lower == "kokoro-base":
+            success = remove_kokoro_base(kokoro_models_dir)
+            if not success:
+                sys.exit(1)
+        elif remove_lower == "kokoro-voices":
+            success = remove_kokoro_voices("all", kokoro_models_dir)
+            if not success:
+                sys.exit(1)
+        elif remove_lower == "kokoro":
+            success = remove_kokoro_package(kokoro_models_dir)
             if not success:
                 sys.exit(1)
         elif args.remove in VOICE_CONFIGS:
@@ -1401,12 +1700,17 @@ def main():
             print("   - 'g2pw' to remove G2PW model")
             print("   - 'all-voices' to remove all PrimeSpeech voices")
             print("   - 'primespeech-base' to remove base models")
+            print("   - 'kokoro', 'kokoro-base', 'kokoro-voices' for Kokoro assets")
             print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
             sys.exit(1)
     
     # Handle --voice argument
     elif args.voice:
         success = download_voice_models(args.voice, models_dir)
+        if not success:
+            sys.exit(1)
+    elif args.kokoro_voice:
+        success = download_kokoro_voices(args.kokoro_voice, kokoro_models_dir)
         if not success:
             sys.exit(1)
     
@@ -1439,7 +1743,14 @@ def main():
         print("  python download_models.py --voice all                 # Download all voices (alternative)")
         print("  python download_models.py --voice \"Luo Xiang\"         # Download specific voice (alternative)")
         print("  python download_models.py --list-voices               # List available voices")
-        
+
+        print("\n  # Kokoro TTS models:")
+        print("  python download_models.py --download kokoro           # Base + all voices")
+        print("  python download_models.py --download kokoro-base      # Base files only")
+        print("  python download_models.py --download kokoro-voices    # All voices only")
+        print("  python download_models.py --kokoro-voice af_heart     # Download specific voice")
+        print("  python download_models.py --list-kokoro-voices        # List Kokoro voices")
+
         print("\n  # Remove models:")
         print("  python download_models.py --remove mlx-community/gemma-3-12b-it-4bit")
         print("  python download_models.py --remove funasr")
@@ -1461,7 +1772,19 @@ def main():
                 print(f"  {voice_name:15} - Repository: {repo}")
         else:
             print("  No voices found")
-    
+
+    if (args.download and args.download.startswith("kokoro")) or args.kokoro_voice:
+        print("\n" + "=" * 50)
+        print("Available Kokoro voices on disk:")
+        print("-" * 50)
+
+        kokoro_local = list_local_kokoro_voices(kokoro_models_dir)
+        if kokoro_local:
+            for voice_name, size_mb in kokoro_local.items():
+                print(f"  {voice_name:20} {size_mb:6.1f} MB")
+        else:
+            print("  No Kokoro voices found")
+
     print("\nDone!")
 
 

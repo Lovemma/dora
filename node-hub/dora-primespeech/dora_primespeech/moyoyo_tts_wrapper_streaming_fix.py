@@ -3,12 +3,16 @@
 
 import sys
 import os
+import logging
 from pathlib import Path
 import numpy as np
 import soundfile as sf
 import importlib.util
 from typing import Generator, Tuple, Optional
 import re
+
+# Setup module logger
+logger = logging.getLogger(__name__)
 
 # Check if MoYoYo TTS is available
 MOYOYO_AVAILABLE = False
@@ -19,15 +23,15 @@ try:
     local_moyoyo_path = Path(__file__).parent
     if local_moyoyo_path.exists() and str(local_moyoyo_path) not in sys.path:
         sys.path.insert(0, str(local_moyoyo_path))
-        print(f"[PrimeSpeech] Using local moyoyo_tts from: {local_moyoyo_path}")
-    
+        logger.debug(f"Using local moyoyo_tts from: {local_moyoyo_path}")
+
     # Import MoYoYo TTS
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
     from moyoyo_tts.TTS_infer_pack.text_segmentation_method import get_method as get_seg_method
     MOYOYO_AVAILABLE = True
-    print("[PrimeSpeech] MoYoYo TTS successfully imported")
+    logger.info("MoYoYo TTS successfully imported")
 except ImportError as e:
-    print(f"[PrimeSpeech] ERROR: Failed to import MoYoYo TTS: {e}")
+    logger.error(f"Failed to import MoYoYo TTS: {e}")
     MOYOYO_AVAILABLE = False
 
 

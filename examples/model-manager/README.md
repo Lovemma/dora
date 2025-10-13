@@ -1,218 +1,180 @@
-# Model Manager
+# Dora Model Manager
 
-Universal model downloader and manager for HuggingFace models, PrimeSpeech TTS voices, and FunASR models.
+`download_models.py` is a universal downloader for Hugging Face models plus curated shortcuts for Dora voice pipelines (FunASR, PrimeSpeech, Kokoro, Qwen MLX, etc.). This README consolidates the quick start and detailed usage notes into one place, including the latest Kokoro features.
 
-## Features
+---
 
-- Download ANY model from HuggingFace Hub
-- Download FunASR models from ModelScope for Chinese ASR
-- List all downloaded models across different locations
-- Remove downloaded models with confirmation
-- Manage PrimeSpeech TTS voice models
-- Support for custom download directories
-- File pattern filtering for selective downloads
-- Resume capability for interrupted downloads
+## 1. Installation
 
-## Installation
+If you have not yet provisioned a Dora development environment, follow `examples/setup-new-chat/README.md` first (it installs `uv`, `rustup`, base Python tooling, etc.).
 
-The script automatically installs required dependencies:
-- `huggingface-hub`
-- `tqdm` (for progress bars)
-
-## Usage
-
-### List Downloaded Models
-
-List all models in your HuggingFace cache and local directories:
+Inside this directory the model manager installs extra Python packages lazily, but you can pre-install them:
 
 ```bash
-./download_models.py --list
+pip install huggingface-hub tqdm
 ```
 
-This scans:
-- `~/.cache/huggingface/hub/` - HuggingFace cache
-- `~/.dora/models/` - Dora models directory
-- Shows model sizes and file counts
+The FunASR shortcuts rely on ModelScope; the setup instructions in `setup-new-chat` already cover the required runtime, so no separate `setup.sh` invocation is necessary.
 
-### Remove Models
+---
 
-Remove downloaded models to free up space:
+## 2. Quick Start
+
+All commands below assume you are in `examples/model-manager/`.
+
+### List cached models
 
 ```bash
-# Remove a HuggingFace model (with confirmation)
-./download_models.py --remove mlx-community/gemma-3-12b-it-4bit
-
-# Remove FunASR models
-./download_models.py --remove funasr
-
-# Remove a specific PrimeSpeech voice
-./download_models.py --remove "Luo Xiang"
-
-# Remove all PrimeSpeech voices
-./download_models.py --remove all-voices
-
-# Remove PrimeSpeech base models
-./download_models.py --remove primespeech-base
+python download_models.py --list
 ```
 
-All removals require confirmation to prevent accidental deletion.
+Scans `~/.cache/huggingface/hub/` and `~/.dora/models/` (PrimeSpeech/Kokoro/FunASR) and prints sizes plus file counts.
 
-### Download HuggingFace Models
-
-Download any model from HuggingFace Hub:
+### Typical downloads
 
 ```bash
-# Download a model
-./download_models.py --download mlx-community/gemma-3-12b-it-4bit
+# ASR models (FunASR Paraformer + punctuation)
+python download_models.py --download funasr
 
-# Download to custom directory
-./download_models.py --download mlx-community/gemma-3-12b-it-4bit --hf-dir ~/my-models/gemma
+# PrimeSpeech base (Chinese HuBERT & RoBERTa) + all voices
+python download_models.py --download primespeech
 
-# Download only specific file types
-./download_models.py --download mlx-community/gemma-3-12b-it-4bit --patterns "*.safetensors" "*.json"
+# Kokoro base + all voices (config.json, kokoro-v1_0.pth, voices/*.pt)
+python download_models.py --download kokoro
 
-# Download specific revision/branch
-./download_models.py --download mlx-community/gemma-3-12b-it-4bit --revision main
+# Qwen3 MLX (choose one)
+python download_models.py --download Qwen/Qwen3-8B-MLX-4bit
 ```
 
-### FunASR Models
-
-Download FunASR models for Chinese ASR:
+### Removing artefacts
 
 ```bash
-# Download FunASR models (Paraformer + Punctuation)
-./download_models.py --download funasr
-
-# Remove FunASR models
-./download_models.py --remove funasr
+python download_models.py --remove funasr
+python download_models.py --remove primespeech-base
+python download_models.py --remove all-voices
+python download_models.py --remove kokoro        # base + voices + HF cache
 ```
 
-FunASR models are stored in `~/.dora/models/asr/funasr/` by default.
+---
 
-### PrimeSpeech TTS Models
+## 3. Full Command Reference
 
-List available voices:
+### 3.1 Hugging Face repositories
 
 ```bash
-./download_models.py --list-voices
+# Download entire repo snapshot
+python download_models.py --download mlx-community/gemma-3-12b-it-4bit
+
+# Custom cache directory
+python download_models.py --download meta-llama/Llama-2-7b-hf --hf-dir ~/llama-cache
+
+# Select file types only
+python download_models.py --download mlx-community/gemma-3-12b-it-4bit --patterns "*.safetensors" "*.json"
+
+# Specific revision
+python download_models.py --download openai/whisper-large-v3 --revision main
+
+# Remove cached repo
+python download_models.py --remove mlx-community/gemma-3-12b-it-4bit
 ```
 
-Download PrimeSpeech models:
+### 3.2 FunASR
 
 ```bash
-# Download base models (Chinese Hubert & Roberta)
-./download_models.py --download primespeech-base
-
-# Download specific voice
-./download_models.py --voice Doubao
-# Or using --download
-./download_models.py --download "Luo Xiang"
-
-# Download all voices
-./download_models.py --voice all
-
-# Custom models directory
-./download_models.py --voice Doubao --models-dir ~/my-tts-models
+python download_models.py --download funasr
+python download_models.py --remove funasr
 ```
 
-Remove PrimeSpeech models:
+Content lands in `~/.dora/models/asr/funasr` by default.
+
+### 3.3 PrimeSpeech
 
 ```bash
-# Remove specific voice
-./download_models.py --remove "Luo Xiang"
+# Base models only
+python download_models.py --download primespeech-base
 
-# Remove all voices
-./download_models.py --remove all-voices
+# List available voices
+python download_models.py --list-voices
 
-# Remove base models
-./download_models.py --remove primespeech-base
+# All voices
+python download_models.py --voice all
+
+# Specific voice
+python download_models.py --voice "Luo Xiang"
+
+# Removal
+python download_models.py --remove "Luo Xiang"
+python download_models.py --remove all-voices
+python download_models.py --remove primespeech-base
 ```
 
-## Available PrimeSpeech Voices
+PrimeSpeech assets are stored under `~/.dora/models/primespeech` unless you pass `--models-dir`.
 
-### Chinese Voices
-- **Doubao** - General purpose voice
-- **Luo Xiang** - Legal expert style
-- **Yang Mi** - Female celebrity voice
-- **Zhou Jielun** - Jay Chou style
-- **Ma Yun** - Jack Ma style
-- **BYS** - Youth voice
-- **Ma Baoguo** - Elder martial arts style
-- **Shen Yi** - Professional analyst
-
-### English Voices
-- **Maple** - Female English voice
-- **Cove** - Male English voice
-- **Ellen** - Talk show host style
-- **Juniper** - Narrative voice
-- **Trump** - Presidential style
-
-## Model Storage Locations
-
-- **HuggingFace models**: `~/.cache/huggingface/hub/`
-- **PrimeSpeech models**: `~/.dora/models/primespeech/`
-- **FunASR models**: `~/.dora/models/asr/funasr/`
-- **Other Dora models**: `~/.dora/models/`
-
-## Examples
+### 3.4 Kokoro
 
 ```bash
-# List all local models
-./download_models.py --list
+# Base files (config.json + kokoro-v1_0.pth) and cache refresh
+python download_models.py --download kokoro-base
 
-# Download Qwen model
-./download_models.py --download Qwen/Qwen3-8B-MLX-4bit
+# All voices only
+python download_models.py --download kokoro-voices
 
-# Download Whisper model
-./download_models.py --download openai/whisper-large-v3
+# Both base and voices
+python download_models.py --download kokoro
 
-# Download Llama model to custom directory
-./download_models.py --download meta-llama/Llama-2-7b-hf --hf-dir ~/llama-models
+# Specific voice (comma-separated list allowed)
+python download_models.py --kokoro-voice af_heart
 
-# Download only model weights (skip tokenizer files)
-./download_models.py --download mlx-community/gemma-3-12b-it-4bit --patterns "*.safetensors" "*.bin"
+# List available voices on Hugging Face
+python download_models.py --list-kokoro-voices
 
-# Download FunASR models for Chinese ASR
-./download_models.py --download funasr
-
-# Download PrimeSpeech voice
-./download_models.py --voice "Luo Xiang"
-
-# Remove a HuggingFace model
-./download_models.py --remove mlx-community/gemma-3-12b-it-4bit
-
-# Remove FunASR models
-./download_models.py --remove funasr
-
-# Remove a specific voice
-./download_models.py --remove "Luo Xiang"
+# Remove
+python download_models.py --remove kokoro-base
+python download_models.py --remove kokoro-voices
+python download_models.py --remove kokoro
 ```
 
-## Troubleshooting
+Kokoro base files and voices are placed under `~/.dora/models/kokoro`. The script also mirrors the `hexgrad/Kokoro-82M` snapshot in your HF cache; removal cleans both local files and cached snapshot.
 
-### Script Not Found
-Make sure to run with `./` prefix or full path:
+### 3.5 Other shortcuts
+
+The script recognises many common repos used in Dora voice demos. Examples:
+
 ```bash
-./download_models.py --list
-# OR
-python3 ./download_models.py --list
+python download_models.py --download openai/whisper-base
+python download_models.py --download Qwen/Qwen3-14B-MLX-4bit
+python download_models.py --download mlx-community/gemma-2-9b-it-4bit
 ```
 
-### PrimeSpeech Not Available
-If you see "PrimeSpeech not available", the PrimeSpeech modules are not installed. You can still download any HuggingFace model.
+Run `python download_models.py --help` for the full option list.
 
-### Large Model Downloads
-For large models (>5GB), downloads may take time. The script supports resume, so you can restart if interrupted.
+---
 
-### Permission Errors
-If you get permission errors, try using a different download directory:
-```bash
-./download_models.py --download model-name --hf-dir ~/my-models
-```
+## 4. Storage Layout
 
-## Notes
+| Location | Contents |
+|----------|----------|
+| `~/.cache/huggingface/hub/` | Hugging Face snapshots (e.g. `hexgrad--Kokoro-82M`) |
+| `~/.dora/models/primespeech/` | PrimeSpeech base + voices |
+| `~/.dora/models/kokoro/` | Kokoro base + voices |
+| `~/.dora/models/asr/funasr/` | FunASR ASR models |
 
-- Downloads are automatically resumed if interrupted
-- Model files are cached to avoid re-downloading
-- Use `--patterns` to save bandwidth by downloading only needed files
-- The script detects HuggingFace repos by checking for "/" in the model name
+Override with `--hf-dir`, `--models-dir`, or `--kokoro-dir` when necessary.
+
+---
+
+## 5. Troubleshooting
+
+- **“Model not found”** – ensure the repo ID is correct (case-sensitive). Use `--list` to confirm downloads.
+- **Permission errors** – use a user-writable path via `--hf-dir` / `--models-dir`, or adjust filesystem permissions.
+- **Interrupted downloads** – the script uses `resume_download=True`; re-run the same command to continue.
+- **PrimeSpeech warning** – even if `dora-primespeech` isn’t installed, you can still fetch the models; install the node before running the TTS pipeline.
+
+---
+
+## 6. File Overview
+
+- `download_models.py` – main CLI
+- `download_all_models.sh` – convenience script for bulk downloads
+
+Use this tool to keep Dora voice demos stocked with the correct ASR, LLM, and TTS assets—especially PrimeSpeech and Kokoro, which rely on precise directory structures.

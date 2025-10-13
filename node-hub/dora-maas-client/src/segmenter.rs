@@ -334,10 +334,13 @@ impl StreamSegmenter {
         // Replace hyphens with spaces in Chinese context (e.g., "2根-土豆" → "2根 土豆")
         // This helps TTS pronounce it more naturally
         result = result.replace('-', " ");
-        
-        // Remove extra whitespace
-        result = result.split_whitespace().collect::<Vec<&str>>().join(" ");
-        
+
+        // Collapse multiple consecutive spaces into single space
+        // Preserve leading/trailing spaces since we're processing chunks
+        while result.contains("  ") {
+            result = result.replace("  ", " ");
+        }
+
         result
     }
     
