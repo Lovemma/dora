@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """
-Queue-based Text Segmenter
-1. No deadlock - first segment sent immediately
-2. Don't judge if segments are complete - just queue them
-3. Send one at a time, triggered by TTS completion
-4. Skip segments with only punctuation or numbers
+Queue-based Text Segmenter with Intelligent Buffering
+
+Features:
+1. Segments streaming LLM text by punctuation marks
+2. Buffers incomplete text fragments across chunks
+3. Combines "北京的" + "天气好，但是不稳定" → "北京的天气好，" + buffer("但是不稳定")
+4. No deadlock - first complete segment sent immediately
+5. Backpressure control - sends one at a time, triggered by TTS completion
+6. Skips punctuation-only segments
+7. Smart reset based on question_id
 """
 
 import os
 import time
 import re
 import json
+from typing import Iterable, List, Tuple
 import pyarrow as pa
 from dora import Node
 from collections import deque
@@ -31,6 +37,18 @@ def send_log(node, level, message, config_level="INFO"):
         "timestamp": time.time()
     }
     node.send_output("log", pa.array([json.dumps(log_data)]))
+
+def parse_int_env(name: str, default: int) -> int:
+    """Safely parse integer environment variables with fallback."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
 
 def should_skip_segment(text, punctuation_marks="。！？.!?", node=None, log_level="INFO"):
     """Check if segment should be skipped (only punctuation or numbers)
@@ -68,14 +86,204 @@ def should_skip_segment(text, punctuation_marks="。！？.!?", node=None, log_l
         send_log(node, "DEBUG", f"Filter: KEEP: '{text}' (len={len(text)})", log_level)
     return False
 
+
+def find_split_index(text: str, max_length: int, split_marks: Iterable[str]) -> int:
+    """Find a split index at or before max_length using provided marks or whitespace."""
+    if max_length <= 0:
+        return -1
+
+    limit = min(len(text), max_length)
+
+    if split_marks:
+        for idx in range(limit, 0, -1):
+            if text[idx - 1] in split_marks:
+                return idx
+
+    for idx in range(limit, 0, -1):
+        if text[idx - 1].isspace():
+            return idx
+
+    return -1
+
+
+def split_segment_to_max(
+    segment: str,
+    max_length: int,
+    min_length: int,
+    split_marks: Iterable[str],
+    node=None,
+    log_level: str = "INFO",
+) -> Tuple[List[str], str]:
+    """Split segment into chunks that respect configured boundaries."""
+    if max_length <= 0 or len(segment) <= max_length:
+        return [segment], ""
+
+    chunks: List[str] = []
+    remainder = segment
+
+    if node:
+        send_log(
+            node,
+            "DEBUG",
+            f"Splitting long segment (len={len(segment)}) with max={max_length}",
+            log_level,
+        )
+
+    while remainder:
+        if len(remainder) <= max_length:
+            chunks.append(remainder)
+            break
+
+        split_idx = find_split_index(remainder, max_length, split_marks)
+        if split_idx == -1:
+            split_idx = max_length
+
+        chunk = remainder[:split_idx]
+        if chunk.strip():
+            chunks.append(chunk)
+
+        remainder = remainder[split_idx:]
+        remainder = remainder.lstrip()
+
+    if chunks:
+        last_chunk = chunks[-1]
+        if len(last_chunk.strip()) < max(min_length, 1):
+            tail = chunks.pop()
+            if node:
+                send_log(
+                    node,
+                    "DEBUG",
+                    f"Holding short tail for buffer (len={len(tail.strip())}): '{tail}'",
+                    log_level,
+                )
+            return chunks, tail
+
+    return chunks, ""
+
+
+def segment_by_punctuation(
+    text,
+    punctuation_marks,
+    max_length,
+    min_length,
+    fallback_split_marks,
+    node=None,
+    log_level="INFO",
+):
+    """Segment text by punctuation marks, respecting MAX_SEGMENT_LENGTH when possible.
+
+    Logic:
+    - Find all punctuation marks in the text
+    - If a segment is <= MAX_SEGMENT_LENGTH, keep it as-is
+    - If a segment is > MAX_SEGMENT_LENGTH, split it at intermediate punctuation marks
+    - Never split mid-sentence (always split at punctuation boundaries)
+    """
+    if not text:
+        return [], "", False
+
+    escaped_punctuation = re.escape(punctuation_marks)
+    pattern = f'[^{escaped_punctuation}]+[{escaped_punctuation}]'
+
+    segments: List[str] = []
+    last_end = 0
+    accumulator = ""
+
+    for match in re.finditer(pattern, text):
+        segment_text = match.group().strip()
+        if not segment_text:
+            continue
+
+        # Add to accumulator
+        if accumulator:
+            combined = accumulator + segment_text
+        else:
+            combined = segment_text
+
+        # Check if we should flush the accumulator
+        if max_length > 0 and len(combined) > max_length:
+            # Combined segment is too long
+            # Flush the accumulator (if not empty) as a separate segment
+            if accumulator:
+                segments.append(accumulator)
+                if node:
+                    send_log(
+                        node,
+                        "DEBUG",
+                        f"Segmentation: Flushed segment at max_length: '{accumulator}' (len={len(accumulator)})",
+                        log_level,
+                    )
+                accumulator = segment_text  # Start new accumulator with current segment
+            else:
+                # Current segment alone is longer than max_length
+                # Send it anyway (can't split mid-sentence)
+                segments.append(segment_text)
+                if node:
+                    send_log(
+                        node,
+                        "DEBUG",
+                        f"Segmentation: Segment exceeds max_length: '{segment_text}' (len={len(segment_text)})",
+                        log_level,
+                    )
+                accumulator = ""
+        else:
+            # Combined segment is within limit, keep accumulating
+            accumulator = combined
+
+        last_end = match.end()
+
+    # Flush any remaining accumulator
+    if accumulator:
+        segments.append(accumulator)
+        if node:
+            send_log(
+                node,
+                "DEBUG",
+                f"Segmentation: Final segment: '{accumulator}' (len={len(accumulator)})",
+                log_level,
+            )
+
+    # Anything left over is incomplete (no ending punctuation)
+    incomplete = text[last_end:].strip()
+
+    if node and incomplete:
+        send_log(node, "DEBUG", f"Segmentation: Incomplete text buffered: '{incomplete}'", log_level)
+
+    return segments, incomplete, False
+
 def main():
     node = Node("text-segmenter")
 
     # Configuration from environment
     punctuation_marks = os.getenv("PUNCTUATION_MARKS", "。！？.!?，,、；：""''（）【】《》")
     log_level = os.getenv("LOG_LEVEL", "INFO")
+    segment_mode = os.getenv("SEGMENT_MODE", "sentence").lower()
+    min_segment_length = max(1, parse_int_env("MIN_SEGMENT_LENGTH", 5))
+    max_segment_length = parse_int_env("MAX_SEGMENT_LENGTH", 100)
+    enable_backpressure = os.getenv("ENABLE_BACKPRESSURE", "true").lower() not in {"0", "false", "no"}
 
-    send_log(node, "INFO", f"Configured punctuation marks for filtering: '{punctuation_marks}'", log_level)
+    fallback_split_marks = {"，", ",", "、", "；", ";", "：", ":"}
+
+    if not punctuation_marks:
+        punctuation_marks = "。！？.!?"
+
+    if segment_mode == "punctuation":
+        punctuation_marks = "".join(dict.fromkeys(punctuation_marks + "".join(fallback_split_marks)))
+
+    send_log(
+        node,
+        "INFO",
+        (
+            "Configured segmentation — mode: %s, min: %d, max: %s, punctuation: '%s', backpressure: %s"
+            % (
+                segment_mode,
+                min_segment_length,
+                "∞" if max_segment_length <= 0 else str(max_segment_length),
+                punctuation_marks,
+                str(enable_backpressure),
+            )
+        ),
+        log_level,
+    )
 
     # Simple queue for segments
     segment_queue = deque()
@@ -87,7 +295,10 @@ def main():
     # Track current question_id for smart reset
     current_question_id = None
 
-    send_log(node, "INFO", "Text Segmenter started", log_level)
+    # Text buffer for incomplete segments (accumulates across LLM chunks)
+    text_buffer = ""
+
+    send_log(node, "INFO", "Text Segmenter started with punctuation-based segmentation", log_level)
     
     for event in node:
         if event["type"] == "INPUT":
@@ -105,23 +316,52 @@ def main():
                 if question_id is not None:
                     current_question_id = question_id
 
-                # Check if we should skip this segment
-                if not should_skip_segment(text, punctuation_marks, node, log_level):
-                    # Valid segment - metadata already contains question_id
-                    segment_queue.append({
-                        "text": text,
-                        "metadata": metadata,
-                    })
+                # Combine with buffered text from previous chunk
+                combined_text = text_buffer + text
 
-                    # Increase counter by 1 (in reality, segmenter might split text further)
-                    # For now, we're treating each incoming text as one segment
-                    segment_counter += 1
-                    send_log(node, "DEBUG", f"Queued segment (total in queue: {len(segment_queue)})", log_level)
+                if text_buffer:
+                    send_log(node, "DEBUG", f"Combined buffered '{text_buffer}' + new '{text}' = '{combined_text}'", log_level)
+
+                # Segment the combined text by punctuation
+                complete_segments, incomplete_text, keep_incomplete = segment_by_punctuation(
+                    combined_text,
+                    punctuation_marks,
+                    max_segment_length,
+                    min_segment_length,
+                    fallback_split_marks,
+                    node,
+                    log_level,
+                )
+
+                # Handle standalone punctuation in buffer
+                # If incomplete_text is ONLY punctuation/whitespace, don't buffer it
+                # (This happens when LLM sends standalone punctuation after a complete segment)
+                if incomplete_text:
+                    if not keep_incomplete and should_skip_segment(incomplete_text, punctuation_marks, node, log_level):
+                        send_log(node, "DEBUG", f"Discarding standalone punctuation buffer: '{incomplete_text}'", log_level)
+                        text_buffer = ""
+                    else:
+                        text_buffer = incomplete_text
                 else:
-                    send_log(node, "DEBUG", "Skipped segment based on filter", log_level)
-                
+                    text_buffer = ""
+
+                # Queue all complete segments
+                for segment_text in complete_segments:
+                    # Check if we should skip this segment (punctuation-only filter)
+                    if not should_skip_segment(segment_text, punctuation_marks, node, log_level):
+                        # Valid segment - metadata already contains question_id
+                        segment_queue.append({
+                            "text": segment_text,
+                            "metadata": metadata,
+                        })
+
+                        segment_counter += 1
+                        send_log(node, "DEBUG", f"Queued segment: '{segment_text}' (total: {len(segment_queue)})", log_level)
+                    else:
+                        send_log(node, "DEBUG", f"Skipped punctuation-only segment: '{segment_text}'", log_level)
+
                 # Try to send a segment if not currently sending
-                # This happens whether we queued the current segment or skipped it
+                # This happens whether we queued segments or not
                 # Ensures no deadlock even if first segments are all punctuation
                 if not is_sending and segment_queue:
                     segment = segment_queue.popleft()
@@ -173,10 +413,13 @@ def main():
                 # Reset command
                 command = event["value"][0].as_py()
                 if command == "reset":
-                    send_log(node, "INFO", f"Reset: Cleared {len(segment_queue)} queued segments via control command", log_level)
+                    cleared_segments = len(segment_queue)
+                    cleared_buffer = len(text_buffer) > 0
                     segment_queue.clear()
+                    text_buffer = ""
                     is_sending = False
                     segment_counter = 0
+                    send_log(node, "INFO", f"Reset: Cleared {cleared_segments} queued segments and text buffer (buffer had text: {cleared_buffer})", log_level)
 
             elif event["id"] == "reset":
                 # Reset signal - clear only segments from OLD questions (different question_id)
@@ -186,10 +429,12 @@ def main():
                 if incoming_question_id is None:
                     # No question_id in reset signal - clear all (backward compatibility)
                     cleared_count = len(segment_queue)
+                    cleared_buffer = len(text_buffer) > 0
                     segment_queue.clear()
+                    text_buffer = ""
                     is_sending = False
                     segment_counter = 0
-                    send_log(node, "INFO", f"Reset: Cleared {cleared_count} queued segments (no question_id)", log_level)
+                    send_log(node, "INFO", f"Reset: Cleared {cleared_count} queued segments and text buffer (no question_id)", log_level)
                 else:
                     # Smart reset - only clear segments from different question_id
                     original_count = len(segment_queue)
@@ -212,6 +457,11 @@ def main():
                     segment_queue = new_queue
                     segment_counter = len(segment_queue)
 
+                    # Clear text buffer on new question
+                    # (buffer content is from previous question and should not be combined with new question)
+                    buffer_was_cleared = len(text_buffer) > 0
+                    text_buffer = ""
+
                     # Update current_question_id to the new question
                     current_question_id = incoming_question_id
 
@@ -219,7 +469,7 @@ def main():
                     if len(segment_queue) == 0:
                         is_sending = False
 
-                    send_log(node, "INFO", f"Smart reset: Cleared {cleared_count}/{original_count} old segments, kept {len(segment_queue)} from new question_id={incoming_question_id}", log_level)
+                    send_log(node, "INFO", f"Smart reset: Cleared {cleared_count}/{original_count} old segments, kept {len(segment_queue)} from new question_id={incoming_question_id}, cleared buffer: {buffer_was_cleared}", log_level)
 
         elif event["type"] == "STOP":
             break

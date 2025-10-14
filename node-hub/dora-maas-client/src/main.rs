@@ -387,10 +387,6 @@ async fn main() -> Result<()> {
                                         metadata.parameters.clone(),
                                         StringArray::from(vec![segment.as_str()]),
                                     ).context("Failed to send text segment")?;
-                                    
-                                    send_log(&mut node, "DEBUG", 
-                                        &format!("Sent segment {} ({} chars) after {} chunks", 
-                                            segment_count, segment.len(), chunk_count))?;
                                 }
                             }
                             

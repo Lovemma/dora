@@ -49,7 +49,6 @@ nodes:
       # Local config file in mac-aec-chat directory
       MAAS_CONFIG_PATH: maas_config.local.toml
       # Pass OpenAI API key directly to the node
-      OPENAI_API_KEY: env:OPENAI_API_KEY
       LOG_LEVEL: INFO
 
   # Text Segmenter - buffers LLM output and sends to TTS one segment at a time
@@ -69,8 +68,8 @@ nodes:
       ENABLE_BACKPRESSURE: "false"  # Don't wait initially - send first segment immediately
       SEGMENT_MODE: "sentence"  # sentence, punctuation, or fixed
       MIN_SEGMENT_LENGTH: "5"
-      MAX_SEGMENT_LENGTH: "20"
-      PUNCTUATION_MARKS: "。！？.!?"
+      MAX_SEGMENT_LENGTH: "15"
+      PUNCTUATION_MARKS: "。！？.!?，,"
       LOG_LEVEL: "INFO"
 
   # PrimeSpeech TTS

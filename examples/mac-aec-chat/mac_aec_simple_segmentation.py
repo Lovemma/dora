@@ -184,10 +184,6 @@ class MacAECSegmentation:
                     audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
                     all_audio.append(audio_array)
                     vad_results.append(vad_result)
-                    
-                    # Debug: Show we got data
-                    if self._debug_counter % 10 == 0 and self.node:
-                        send_log(self.node, "DEBUG", f"Got chunk {len(all_audio)}: {len(audio_data)} bytes = {len(audio_array)} samples")
                 elif audio_data is not None:
                     if self.node:
                         send_log(self.node, "WARNING", f"Got non-bytes data: {type(audio_data)}")
@@ -212,17 +208,10 @@ class MacAECSegmentation:
             vad_result = any(vad_results)  # True if any chunk had voice
             num_chunks = len(all_audio)  # Track number of chunks for accurate silence counting
                 
-            # Debug: Check audio characteristics periodically
+            # Debug counter for internal tracking
             if not hasattr(self, '_debug_counter'):
                 self._debug_counter = 0
             self._debug_counter += 1
-                
-            if self._debug_counter % 30 == 0:  # Log every ~1 second
-                max_val = np.abs(audio_array).max()
-                rms = np.sqrt(np.mean(audio_array**2))
-                chunks_collected = len(all_audio)
-                if self.node:
-                    send_log(self.node, "DEBUG", f"Collected {chunks_collected} chunks, total {len(audio_array)} samples, max={max_val:.4f}, rms={rms:.4f}, VAD={vad_result}")
                 
             # Track VAD state changes
             speech_started = False
@@ -279,9 +268,6 @@ class MacAECSegmentation:
                         if len(self.audio_segment_buffer) >= self.min_segment_size:
                             audio_segment = np.array(self.audio_segment_buffer, dtype=np.float32)
                             # Speech ended - no verbose logging
-                        else:
-                            if self.node:
-                                send_log(self.node, "DEBUG", f"Segment too short, discarding: {len(self.audio_segment_buffer)} samples")
 
                         # Reset state
                         self.audio_segment_buffer = []
@@ -364,11 +350,6 @@ def main():
                     audio_pa = pa.array(audio_frame, type=pa.float32())
                     node.send_output("audio", audio_pa)
                     no_audio_count = 0
-                    
-                    # Log progress and audio details
-                    if frame_count % 30 == 0:  # Every ~300ms
-                        max_val = np.abs(audio_frame).max() if len(audio_frame) > 0 else 0
-                        send_log(node, "DEBUG", f"Sent frame {frame_count}: {len(audio_frame)} samples, max_amp={max_val:.4f}")
                 else:
                     # Track no audio frames
                     no_audio_count += 1

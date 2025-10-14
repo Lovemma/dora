@@ -1,44 +1,24 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `binaries/`: CLI, daemon, runtime, coordinator binaries.
-- `libraries/`: Core crates (communication, message, telemetry, shared memory, etc.).
-- `apis/`: Language APIs (Rust, Python, C/C++). Python bindings live under `apis/python/*`.
-- `examples/`: Runnable dataflows and language-specific demos (see `cargo run --example ...`).
-- `node-hub/`: Prebuilt nodes (mostly Python) with their own `pyproject.toml` and tests.
-- `tests/`: Integration-style dataflows and latency/queue tests.
-- `docs/`, `docker/`, `.github/`: Documentation, container assets, and CI workflows.
+Source crates live under `libraries/` and `binaries/`. Use `examples/` for runnable dataflows and `node-hub/` for prebuilt Python nodes. Language bindings reside in `apis/`, while integration scenarios sit in `tests/`. Keep documentation and design notes under `docs/` or repo-level `.md` files. Favor colocating small helpers beside their caller to preserve module cohesion.
 
 ## Build, Test, and Development Commands
-- Rust check/build:
-  - `cargo check --all --exclude dora-dav1d --exclude dora-rav1e`
-  - `cargo build --all --exclude dora-node-api-python --exclude dora-operator-api-python --exclude dora-ros2-bridge-python`
-- Rust tests:
-  - `cargo test --all --exclude dora-dav1d --exclude dora-rav1e --exclude dora-node-api-python --exclude dora-operator-api-python --exclude dora-ros2-bridge-python`
-- Formatting & lint:
-  - `cargo fmt --all` and `cargo clippy --all`
-- Examples:
-  - `cargo run --example rust-dataflow`
-- CLI (local install) and quick run:
-  - `cargo install --path binaries/cli --locked`
-  - `dora up && dora build examples/rust-dataflow/dataflow.yml && dora run examples/rust-dataflow/dataflow.yml`
-- Python nodes (node-hub or APIs):
-  - `uv venv --seed -p 3.12 && uv pip install -e apis/python/node`
-  - `uv run ruff check .` and `uv run pytest`
+- `cargo check --all --exclude dora-dav1d --exclude dora-rav1e`: fast structural validation for the Rust workspace.
+- `cargo test --all --exclude dora-dav1d --exclude dora-rav1e --exclude dora-node-api-python --exclude dora-operator-api-python --exclude dora-ros2-bridge-python`: run the standard test suite.
+- `cargo fmt --all` and `uv run ruff check .`: enforce Rust and Python formatting/linting.
+- `cargo clippy --all`: catch Rust correctness and style issues.
+- `uv venv --seed -p 3.12 && uv pip install -e apis/python/node && uv run pytest`: prepare and test the Python node API.
+- `dora build && dora start --detach`: validate dataflows before publishing.
 
 ## Coding Style & Naming Conventions
-- Rust: `rustfmt` defaults; prefer idiomatic module layout; crate names kebab-case, Rust types CamelCase, functions snake_case.
-- Python: `ruff` for lint/format; modules and files snake_case; tests under `tests/test_*.py`.
-- YAML graphs: concise IDs, snake_case names; keep graphs in `examples/*` or package roots.
+Rust follows rustfmt defaults; crates use kebab-case, modules and functions snake_case, and types CamelCase. Python modules stay snake_case with Ruff enforcing imports and spacing. Prefer `eyre`/`anyhow` for Rust error contexts and raise typed exceptions in Python. Keep public APIs documented with `///` comments or docstrings.
 
 ## Testing Guidelines
-- Rust: place unit tests in-module; integration tests under `tests/` per crate. Run with `cargo test` (see excludes above).
-- Python (node-hub): write `pytest` tests in `tests/`; use fixtures to skip GPU/network when not available; run with `uv run pytest`.
-- Dataflow checks: prefer `dora build ...` then `dora start ... --detach` for smoke tests; add minimal graphs in `tests/*` when feasible.
+Name Rust unit tests after the behaviour under test and keep integration suites in `tests/`. For dataflow checks, combine `cargo test` with a targeted `dora start` to ensure nodes interact correctly. Python tests live in `tests/test_*.py` and may rely on fixtures to skip GPU or network dependencies. Treat flakiness as a bug; add regression tests before merging fixes.
 
 ## Commit & Pull Request Guidelines
-- Commits: imperative mood; keep scope focused. Conventional prefixes welcome (e.g., `feat:`, `fix:`, `docs:`).
-- PRs: include a clear description, linked issues, reproduction or example commands, and docs updates if behavior changes. Ensure CI (check, test, fmt, clippy) passes.
+Write commits in the imperative mood (“Add telemetry exporter”) and group logical changes. Ensure PR descriptions summarize the problem, highlight impacts on operators or APIs, and link issues. Include reproduction steps or `cargo test` output when the change touches runtime behaviour. Request review from domain owners and wait for CI to pass before merging.
 
-## Security & Configuration Tips
-- Do not commit credentials or large model artifacts. Use environment variables and `.gitignore`d files for secrets. Prefer reproducible installs via `uv` and `cargo --locked`.
+## Security & Environment Notes
+Store API keys outside the repository; scripts like `test_env_api_key.sh` illustrate the expected environment variables. Review shell scripts under `docker/` and install helpers for platform-specific steps, and avoid checking secrets into `out/` or `target/`. On macOS, prefer `uv` over global `pip` to keep dependencies reproducible.

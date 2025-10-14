@@ -134,8 +134,8 @@ def main():
                             color = Colors.YELLOW
                             prefix = f"⚠️  {icon} {display_name}"
                         elif level == "DEBUG":
-                            # Skip debug messages in normal view
-                            continue
+                            color = Colors.BLUE
+                            prefix = f"🔍 {icon} {display_name}"
                         else:  # INFO
                             color = Colors.CYAN
                             prefix = f"{icon} {display_name}"

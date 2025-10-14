@@ -246,7 +246,7 @@ install_dependencies() {
     # Install transformers and related packages
     print_info "Installing ML libraries..."
     pip install transformers==4.45.0  # Voice chat pipeline standard (security compliant)
-    pip install huggingface-hub==0.17.3
+    pip install huggingface-hub==0.34.4
     pip install datasets accelerate sentencepiece protobuf
     
     # Install dora-rs

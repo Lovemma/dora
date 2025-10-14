@@ -29,9 +29,20 @@ python test_dependencies.py
 
 ---
 
-## 2. Manual Installation (summary)
+## 2. Dependencies Installation
 
-If you prefer to mirror the process manually, use the following commands after creating/activating the environment:
+Install the pinned dependencies manually by activating the environment and running the platform script:
+
+```bash
+conda activate dora_voice_chat
+
+# Linux
+./install_all_packages.sh
+```
+
+These scripts reproduce the package set from the automated setup, reinstall all Dora voice nodes in editable mode, and build the Rust components when Cargo is available.
+
+For reference, the core Python commands they execute are listed below. You can run them individually if you need to customise the installation:
 
 ```bash
 # Core libraries
@@ -90,14 +101,3 @@ export PYTORCH_ENABLE_MPS_FALLBACK="1"   # macOS Metal fallback
 3. Run the voice-chat dataflows under `examples/mac-aec-chat/` following their README.
 
 Enjoy building Dora chatbots!
-
----
-
-## 6. Optional: `install_all_packages*.sh`
-
-Two helper scripts remain in this directory:
-
-- `install_all_packages.sh` (Linux)
-- `install_all_packages_macos.sh`
-
-Use them **only after** the `dora_voice_chat` conda environment already exists and is activated. They reinstall the voice-chat Python nodes in editable mode, ensure Dora CLI/Rust components are built, and on Linux install a few system packages via `apt`. This is useful if you tweak dependencies manually and want to restore the known-good set without recreating the entire environment. For a fresh installation, prefer `setup_isolated_env.sh`.

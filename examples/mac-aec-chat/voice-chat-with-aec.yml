@@ -103,7 +103,7 @@ nodes:
       MIN_SEGMENT_LENGTH: "5"
       MAX_SEGMENT_LENGTH: "20"
       PUNCTUATION_MARKS: "。！？.!?，,"
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: "DEBUG"
 
   # PrimeSpeech TTS
   - id: primespeech

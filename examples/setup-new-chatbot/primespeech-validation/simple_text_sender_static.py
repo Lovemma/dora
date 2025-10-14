@@ -16,10 +16,13 @@ def main():
     
     node = Node()
     
-    # Complete Chinese text
-    chinese_text = """我们说中国式现代化是百年大战略，这又分为三个阶段。第一个阶段，我们先用30年时间建成了独立完整的工业体系和国民经济体系；再用40年，到2021年，全面建成了小康社会。我们现在正处于第三个阶段，这又被分成上下两篇：上半篇是到2035年基本实现社会主义现代化；下半篇是到本世纪中叶，也就是2050年，建成社会主义现代化强国。"""
+    # Mixed language text for leakage testing
+    mixed_text = """Hello world. 你好世界. This is a test. 这是一个测试. Welcome to Beijing. 欢迎来到北京. AI technology. 人工智能技术. Thank you very much. 非常感谢."""
     
-    print(f"\nText to send ({len(chinese_text)} characters)")
+    print(f"\nText to send ({len(mixed_text)} characters)")
+    print("-" * 60)
+    print("Mixed content for leakage testing:")
+    print(mixed_text)
     print("-" * 60)
     
     # Wait for system to be ready
@@ -32,11 +35,12 @@ def main():
     
     node.send_output(
         "text_output",
-        pa.array([chinese_text]),
+        pa.array([mixed_text]),
         metadata={
-            "session_id": "timing_test",
-            "char_count": len(chinese_text),
-            "start_time": start_time
+            "session_id": "leakage_test",
+            "char_count": len(mixed_text),
+            "start_time": start_time,
+            "test_type": "mixed_language_leakage"
         }
     )
     
