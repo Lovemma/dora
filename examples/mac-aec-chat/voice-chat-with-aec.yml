@@ -123,7 +123,7 @@ nodes:
       
       # Voice selection
       VOICE_NAME: Doubao  # Available: Doubao, Luo Xiang, Yang Mi, Zhou Jielun, Ma Yun, Maple, Cove
-      PRIMESPEECH_MODEL_DIR: /Users/yuechen/.dora/models/primespeech
+      PRIMESPEECH_MODEL_DIR: $HOME/.dora/models/primespeech
       # Language settings
       TEXT_LANG: zh  # zh for Chinese, en for English, auto for detection
       PROMPT_LANG: zh  # Language of the reference prompt
