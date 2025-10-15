@@ -8,8 +8,8 @@ enable_streaming = true
 log_level = "INFO"
 
 # Enable MCP tools locally so the LLM can call them
-enable_tools = false
-enable_local_mcp = false
+enable_tools = true
+enable_local_mcp = true
 
 # OpenAI Provider
 [[providers]]

@@ -81,11 +81,16 @@ python download_models.py --remove mlx-community/gemma-3-12b-it-4bit
 ### 3.2 FunASR
 
 ```bash
+# Download FunASR models (PyTorch format)
 python download_models.py --download funasr
+
+# Remove FunASR models
 python download_models.py --remove funasr
 ```
 
 Content lands in `~/.dora/models/asr/funasr` by default.
+
+**Note**: Downloaded models are in PyTorch format and work immediately with GPU acceleration. ONNX conversion is optional (see section 3.6).
 
 ### 3.3 PrimeSpeech
 
@@ -148,6 +153,58 @@ python download_models.py --download mlx-community/gemma-2-9b-it-4bit
 
 Run `python download_models.py --help` for the full option list.
 
+### 3.6 ONNX Model Conversion (Recommended for CPU)
+
+FunASR models support **dual backends** (PyTorch and ONNX). ONNX conversion is **highly recommended for CPU deployment** for optimal performance.
+
+#### When is ONNX conversion needed?
+
+**Short answer: Recommended for CPU systems (Mac, Windows, Linux servers).**
+
+- **ONNX models (quantized)**: Best performance on CPU systems - **2.4x faster than PyTorch**
+- **PyTorch models (default)**: Best for GPU acceleration (NVIDIA CUDA)
+
+#### Performance Comparison
+
+| Backend | Device | System | Processing Time | Speed | When to Use |
+|---------|--------|--------|----------------|-------|-------------|
+| **PyTorch** | **GPU (CUDA)** | RTX 4090 | 0.282s (17.35s audio) | 61.6x real-time | ✅ **Best for GPU** - NVIDIA systems |
+| **ONNX** | **CPU** | **MacBook M3 Pro** | **0.104s (3s audio)** | **28.6x real-time** | ✅ **Best for CPU** - Mac/Windows/Linux |
+| PyTorch | CPU | MacBook M3 Pro | 0.250s (3s audio) | 11.9x real-time | Slower fallback (2.4x slower than ONNX) |
+
+#### When ONNX conversion is beneficial:
+
+- **CPU-only systems** (Mac, Windows, Linux) - 2.4x faster than PyTorch
+- **Cross-platform deployment** (Windows/macOS/Linux/ARM)
+- **Embedded systems** requiring ONNX Runtime
+- **Inference-only containers** with minimal dependencies
+
+#### How to convert models to ONNX:
+
+```bash
+# Convert all FunASR models
+python convert_to_onnx.py --convert all
+
+# Convert specific model
+python convert_to_onnx.py --model paraformer --input-dir ~/.dora/models/asr/funasr
+
+# The download_all_models.sh script will prompt for ONNX conversion at the end
+./download_all_models.sh  # Prompts: "Do you want to convert models to ONNX format? (y/n)"
+```
+
+#### Backend Selection
+
+The ASR engine automatically selects the best available backend:
+
+1. **PyTorch GPU** (if GPU available and `USE_GPU=true`)
+2. ONNX GPU (if ONNX models present)
+3. PyTorch CPU (default fallback)
+4. ONNX CPU (last resort)
+
+**Recommendation**:
+- **CPU systems (Mac/Windows/Linux)**: Convert to ONNX for 2.4x performance boost
+- **GPU systems (NVIDIA CUDA)**: Use PyTorch models (no conversion needed)
+
 ---
 
 ## 4. Storage Layout
@@ -174,7 +231,8 @@ Override with `--hf-dir`, `--models-dir`, or `--kokoro-dir` when necessary.
 
 ## 6. File Overview
 
-- `download_models.py` – main CLI
-- `download_all_models.sh` – convenience script for bulk downloads
+- `download_models.py` – main CLI for downloading models
+- `download_all_models.sh` – convenience script for bulk downloads (includes optional ONNX conversion prompt)
+- `convert_to_onnx.py` – optional ONNX conversion utility for FunASR models (see section 3.6)
 
 Use this tool to keep Dora voice demos stocked with the correct ASR, LLM, and TTS assets—especially PrimeSpeech and Kokoro, which rely on precise directory structures.
