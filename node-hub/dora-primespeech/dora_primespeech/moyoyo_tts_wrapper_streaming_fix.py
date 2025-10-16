@@ -71,15 +71,15 @@ class StreamingMoYoYoTTSWrapper:
         
         # Optimization parameters - disable MoYoYo's broken "streaming"
         self.optimization_config = {
-            "batch_size": 10,  # Smaller batches for faster first output
-            "text_split_method": "cut5",  # Automatic segmentation
+            "batch_size": 100,  # Smaller batches for faster first output
+            "text_split_method": "cut0",  # Automatic segmentation
             "split_bucket": True,  # Enable bucketing
             "return_fragment": False,  # DISABLE MoYoYo's broken streaming
-            "fragment_interval": 0.03,
-            "parallel_infer": True,
-            "top_k": 3,
-            "top_p": 0.95,
-            "temperature": 0.8,
+            "fragment_interval": 0.07,
+            "parallel_infer": False,
+            "top_k": 5,
+            "top_p": 1,
+            "temperature": 1,
             "repetition_penalty": 1.35,
             "seed": 233333,
         }
