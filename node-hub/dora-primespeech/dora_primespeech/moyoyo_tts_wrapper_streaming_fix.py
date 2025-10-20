@@ -405,7 +405,7 @@ class StreamingMoYoYoTTSWrapper:
             text = self._clean_text(text)
             inputs = {
                 "text": text,
-                "text_lang": 'zh',
+                "text_lang": language,
                 "ref_audio_path": self.ref_audio_path,
                 "prompt_text": self.prompt_text,
                 "prompt_lang": "zh",
