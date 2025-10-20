@@ -4,12 +4,7 @@ import re
 import sys
 from typing import Dict, List, Tuple
 
-# Import LangSegment from the fix module
-import sys
-import os
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, parent_dir)
-from LangSegment_fix import LangSegment, setLangfilters
+import LangSegment.LangSegment as LangSegment
 import torch
 from tqdm import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
@@ -106,7 +101,7 @@ class TextPreprocessor:
             # 解决输入目标文本的空行导致报错的问题
             if (len(text.strip()) == 0):
                continue
-            if not re.sub(r"\W+", "", text):
+            if not re.sub("\W+", "", text):
                 # 检测一下，如果是纯符号，就跳过。
                 continue
             if (text[-1] not in splits): text += "。" if lang != "en" else "."

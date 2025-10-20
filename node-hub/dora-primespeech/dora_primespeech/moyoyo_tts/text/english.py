@@ -4,44 +4,16 @@ import re
 import unicodedata
 from builtins import str as unicode
 
-"""
-English text frontend helpers.
-
-This module conditionally imports optional dependencies used only for English
-processing. When those packages are missing (e.g., in Chinese-only setups),
-we avoid crashing at import time and instead raise a clear error if the
-English path is actually invoked.
-"""
-
-# Optional deps: wordsegment, g2p_en, nltk
-try:
-    import wordsegment  # type: ignore
-except Exception:  # pragma: no cover - best-effort fallback
-    wordsegment = None
-
-try:  # g2p_en provides G2p and normalize_numbers
-    from g2p_en import G2p as _BaseG2p  # type: ignore
-    from g2p_en.expand import normalize_numbers  # type: ignore
-except Exception:  # pragma: no cover - define safe fallbacks
-    class _BaseG2p:  # minimal stub to allow subclassing and delayed error
-        def __init__(self, *args, **kwargs):
-            raise ImportError("g2p_en is required for English text processing. Install 'g2p_en'.")
-
-    def normalize_numbers(text: str) -> str:
-        return text
-
-try:
-    from nltk.tokenize import TweetTokenizer  # type: ignore
-    from nltk import pos_tag  # type: ignore
-except Exception:  # pragma: no cover - define minimal fallbacks
-    TweetTokenizer = None
-    def pos_tag(tokens):  # very naive POS fallback; forces default branch
-        return [(t, "NN") for t in tokens]
+import wordsegment
+from g2p_en import G2p
+from g2p_en.expand import normalize_numbers
+from nltk.tokenize import TweetTokenizer
 
 from moyoyo_tts.text.symbols import punctuation
 from moyoyo_tts.text.symbols2 import symbols
 
-word_tokenize = (TweetTokenizer().tokenize if TweetTokenizer else (lambda s: s.split()))
+word_tokenize = TweetTokenizer().tokenize
+from nltk import pos_tag
 
 current_file_path = os.path.dirname(__file__)
 CMU_DICT_PATH = os.path.join(current_file_path, "cmudict.rep")
@@ -275,15 +247,11 @@ def text_normalize(text):
     return text
 
 
-class en_G2p(_BaseG2p):
+class en_G2p(G2p):
     def __init__(self):
         super().__init__()
-        # 分词初始化（可选）
-        if wordsegment is not None:
-            try:
-                wordsegment.load()
-            except Exception:
-                pass
+        # 分词初始化
+        wordsegment.load()
 
         # 扩展过时字典, 添加姓名字典
         self.cmu = get_dict()
@@ -301,11 +269,7 @@ class en_G2p(_BaseG2p):
     def __call__(self, text):
         # tokenization
         words = word_tokenize(text)
-        # POS tagging; fall back to neutral tags if NLTK models unavailable
-        try:
-            tokens = pos_tag(words)  # tuples of (word, tag)
-        except Exception:
-            tokens = [(w, "NN") for w in words]
+        tokens = pos_tag(words)  # tuples of (word, tag)
 
         # steps
         prons = []
@@ -383,7 +347,7 @@ class en_G2p(_BaseG2p):
             return phones
 
         # 尝试进行分词，应对复合词
-        comps = wordsegment.segment(word.lower()) if wordsegment is not None else [word.lower()]
+        comps = wordsegment.segment(word.lower())
 
         # 无法分词的送回去预测
         if len(comps)==1:

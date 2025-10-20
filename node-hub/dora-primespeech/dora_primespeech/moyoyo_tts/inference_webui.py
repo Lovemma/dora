@@ -22,7 +22,7 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 logging.getLogger("charset_normalizer").setLevel(logging.ERROR)
 logging.getLogger("torchaudio._extension").setLevel(logging.ERROR)
 logging.getLogger("multipart.multipart").setLevel(logging.ERROR)
-from moyoyo_tts.LangSegment_fix import LangSegment, setLangfilters
+import LangSegment.LangSegment as LangSegment
 import torch
 
 try:

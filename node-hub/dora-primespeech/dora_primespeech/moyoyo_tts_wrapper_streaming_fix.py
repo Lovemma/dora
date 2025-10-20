@@ -28,6 +28,15 @@ try:
     # Import MoYoYo TTS
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
     from moyoyo_tts.TTS_infer_pack.text_segmentation_method import get_method as get_seg_method
+    from moyoyo_tts.utils import HParams
+
+    if "utils" not in sys.modules:
+        class GPTSoVITSFixedUtilsModule:
+            HParams = HParams
+
+
+        sys.modules['utils'] = GPTSoVITSFixedUtilsModule
+
     MOYOYO_AVAILABLE = True
     logger.info("MoYoYo TTS successfully imported")
 except ImportError as e:
@@ -80,7 +89,7 @@ class StreamingMoYoYoTTSWrapper:
             "top_k": 5,
             "top_p": 1,
             "temperature": 1,
-            "repetition_penalty": 1.35,
+            # "repetition_penalty": 1.35,
             "seed": 233333,
         }
         
@@ -362,8 +371,13 @@ class StreamingMoYoYoTTSWrapper:
         except Exception as e:
             self.log("ERROR", f"Streaming synthesis failed: {e}")
             raise
-    
-    def synthesize(self, text, language="zh", speed=1.0):
+
+    def _clean_text(self, text: str) -> str:
+        """去除文本中的中英文标点符号。"""
+        # 去除中英文标点符号，保留字母、数字、下划线、中文和空格
+        return re.sub(r'[^\w\s\u4e00-\u9fa5]', ' ', text)
+
+    def synthesize(self, text, language="zh", speed=1.1):
         """Synthesize speech from text (non-streaming).
         
         Args:
@@ -388,13 +402,14 @@ class StreamingMoYoYoTTSWrapper:
         
         try:
             # Prepare inputs
+            text = self._clean_text(text)
             inputs = {
                 "text": text,
-                "text_lang": language,
+                "text_lang": 'zh',
                 "ref_audio_path": self.ref_audio_path,
                 "prompt_text": self.prompt_text,
                 "prompt_lang": "zh",
-                "speed_factor": speed,
+                "speed_factor": 1.1,
                 "return_fragment": False,
                 **self.optimization_config
             }
