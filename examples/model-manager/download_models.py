@@ -432,8 +432,16 @@ def check_voice_downloaded(voice_name: str, models_dir: Path) -> tuple[bool, flo
     
     # Calculate total size if we have at least GPT and SoVITS files
     if gpt_file and sovits_file:
+        expected_ref = VOICE_CONFIGS[voice_name].get("reference_audio")
+        # Require the configured reference audio when defined
+        if expected_ref:
+            ref_path = models_dir / "moyoyo" / expected_ref
+            if ref_file is None and not ref_path.exists():
+                return False, 0
+            ref_file = ref_file or ref_path
+
         total_size = gpt_file.stat().st_size + sovits_file.stat().st_size
-        if ref_file:
+        if ref_file and ref_file.exists():
             total_size += ref_file.stat().st_size
         return True, total_size / (1024**2)  # Convert to MB
     
