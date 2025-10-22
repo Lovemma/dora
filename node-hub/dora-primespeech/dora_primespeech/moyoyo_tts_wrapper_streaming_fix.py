@@ -7,7 +7,41 @@ import logging
 from pathlib import Path
 import numpy as np
 import soundfile as sf
+import importlib
 import importlib.util
+
+
+def _ensure_langsegment_compatibility():
+    """Ensure newer LangSegment releases work with legacy MoYoYo imports."""
+    try:
+        import LangSegment  # noqa: F401  # Trigger default import
+    except ImportError as exc:
+        # Newer releases removed setLangfilters; fall back to bundled shim
+        if "setLangfilters" in str(exc):
+            fix_path = Path(__file__).parent / "moyoyo_tts" / "LangSegment_fix.py"
+            spec = importlib.util.spec_from_file_location(
+                "LangSegment.LangSegment",
+                str(fix_path),
+            )
+            langseg_module = importlib.util.module_from_spec(spec)
+            sys.modules['LangSegment'] = langseg_module
+            sys.modules['LangSegment.LangSegment'] = langseg_module
+            spec.loader.exec_module(langseg_module)  # type: ignore[attr-defined]
+        else:
+            raise
+    else:
+        # Module imported successfully; alias missing helper if needed
+        import LangSegment.LangSegment as langseg_module  # type: ignore
+
+        if (not hasattr(langseg_module, "setLangfilters")
+                and hasattr(langseg_module, "setfilters")):
+            langseg_module.setLangfilters = langseg_module.setfilters  # type: ignore[attr-defined]
+
+        if hasattr(langseg_module, "LangSegment"):
+            langseg_class = langseg_module.LangSegment
+            if (not hasattr(langseg_class, "setLangfilters")
+                    and hasattr(langseg_class, "setfilters")):
+                langseg_class.setLangfilters = langseg_class.setfilters  # type: ignore[attr-defined]
 from typing import Generator, Tuple, Optional
 import re
 
@@ -24,6 +58,9 @@ try:
     if local_moyoyo_path.exists() and str(local_moyoyo_path) not in sys.path:
         sys.path.insert(0, str(local_moyoyo_path))
         logger.debug(f"Using local moyoyo_tts from: {local_moyoyo_path}")
+
+    # Ensure LangSegment compatibility across versions
+    _ensure_langsegment_compatibility()
 
     # Import MoYoYo TTS
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
