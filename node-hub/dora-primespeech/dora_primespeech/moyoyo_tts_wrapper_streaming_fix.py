@@ -126,8 +126,8 @@ class StreamingMoYoYoTTSWrapper:
                 "doubao": {
                     "t2s_weights": "GPT_weights/doubao_best_gpt.ckpt",
                     "vits_weights": "SoVITS_weights/doubao_best_sovits.pth",
-                    "ref_audio": "ref_audios/doubao_ref.wav",
-                    "prompt_text": "我叫豆包呀，能陪你聊天解闷，不管是聊生活趣事，知识科普还是帮你出主意，我都在行哦。",
+                    "ref_audio": "ref_audios/doubao_ref_mix.wav",
+                    "prompt_text": "最近工作太忙了，天天都在赶deadline，真希望能有个long vacation, 好好放松一下。",
                 },
                 "luoxiang": {
                     "t2s_weights": "GPT_weights/luoxiang_best_gpt.ckpt",
