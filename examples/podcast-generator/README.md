@@ -1,0 +1,355 @@
+# Podcast Generator
+
+Generate two-person podcast audio from markdown scripts using Dora's PrimeSpeech TTS.
+
+## Overview
+
+This example demonstrates:
+- Sequential TTS generation with two different voices (大牛 with Luo Xiang voice, 一帆 with Doubao voice)
+- Intelligent text segmentation for long passages (maintains sentence completeness)
+- Automatic random 1-3 second silence padding between speaker changes
+- Markdown-based script format for easy editing
+- Dynamic node orchestration with Dora
+- Real-time monitoring with viewer node
+
+## Architecture
+
+```
+┌─────────────────────┐
+│ script_segmenter.py │ (dynamic node)
+│  - Parse markdown   │
+│  - Split long text  │
+│  - Send segments    │
+└──────────┬──────────┘
+           │
+    ┌──────┴──────┐
+    │             │
+    ▼             ▼
+┌─────────┐  ┌─────────┐
+│ daniu   │  │ yifan   │ (PrimeSpeech TTS)
+│ TTS     │  │ TTS     │ (static nodes)
+└────┬────┘  └────┬────┘
+     │            │
+     │   audio +  │
+     │  segment_  │
+     │  complete  │
+     └─────┬──────┘
+           ▼
+  ┌─────────────────┐
+  │ voice_output.py │ (dynamic node)
+  │  - Concatenate  │
+  │  - Random 1-3s  │
+  │    silence      │
+  │  - Write WAV    │
+  └─────────────────┘
+```
+
+## Node Inventory
+
+| Node ID | Type | Role | Inputs | Outputs |
+|---------|------|------|--------|---------|
+| `script-segmenter` | Dynamic | Parse markdown, apply intelligent text segmentation, and orchestrate TTS generation | `daniu_segment_complete`, `yifan_segment_complete` | `daniu_text`, `yifan_text`, `script_complete`, `log` |
+| `primespeech-daniu` | Static | TTS for 大牛 (Luo Xiang voice) | `text` | `audio`, `segment_complete`, `log` |
+| `primespeech-yifan` | Static | TTS for 一帆 (Doubao voice) | `text` | `audio`, `segment_complete`, `log` |
+| `voice-output` | Dynamic | Concatenate audio with silence padding, write WAV | `daniu_audio`, `yifan_audio`, `daniu_segment_complete`, `yifan_segment_complete`, `script_complete` | `log` |
+| `viewer` | Dynamic | Monitor logs and events (optional) | All logs and text events | none |
+
+## Prerequisites
+Refer to the `mac-aec-chat` example for the required environment setup, dependency installation, and model download steps before running this project.
+
+## Launch Sequence
+
+**Important:** All terminals must have the same conda environment activated. Dynamic nodes must stay running until the podcast generation is complete.
+
+### Terminal 1 - Start Dataflow (Static Nodes)
+```bash
+cd examples/podcast-generator
+dora start dataflow.yml
+```
+
+This starts the two PrimeSpeech TTS nodes (static nodes).
+
+### Terminal 2 - Start Script Segmenter
+```bash
+cd examples/podcast-generator
+python script_segmenter.py --input-file scripts/agentcomp.md
+```
+
+This reads the markdown script and sends text segments to the TTS nodes.
+
+### Terminal 3 - Start Voice Output
+```bash
+cd examples/podcast-generator
+python voice_output.py --output-file output/podcast_output.wav
+```
+
+This receives audio from both TTS nodes, adds silence padding, and writes the final WAV file.
+
+### Terminal 4 (Optional) - Start Viewer
+```bash
+cd examples/podcast-generator
+python viewer.py
+```
+
+This displays real-time logs and events from all nodes with color-coded output.
+
+### ⏰ **Critical Launch Order**
+
+There is no strict timing requirement, but start the `voice_output.py` node before the `script_segmenter.py` node so no audio segments are missed.
+
+**Recommended sequence:**
+1. Terminal 1: `dora start dataflow.yml`
+2. Terminal 3: `python voice_output.py --output-file output/podcast_output.wav`
+3. Terminal 2: `python script_segmenter.py --input-file scripts/agentcomp.md`
+4. Terminal 4 (optional): `python viewer.py`
+
+You can take your time between launches; just keep the dynamic nodes running until the podcast finishes generating.
+
+## Script Format
+
+Create markdown files with speaker tags:
+
+```markdown
+# Your Podcast Title
+
+【大牛】Text spoken by Daniu using Luo Xiang voice.
+
+【一帆】Text spoken by Yifan using Doubao voice.
+
+【大牛】More text from Daniu...
+
+【一帆】More text from Yifan...
+```
+
+### Rules
+- Speaker tags must be `【大牛】` or `【一帆】`
+- Text accumulates from a speaker tag until the next speaker tag appears
+- All lines between speaker tags are combined into one segment
+- Empty lines and lines without tags (headers, etc.) are ignored
+- Long segments are automatically split at punctuation marks (see Text Segmentation)
+- Segments are processed sequentially in order
+- Supports both plain `【大牛】` and markdown bold `**【大牛】**` formats
+
+## Configuration
+
+### Text Segmentation for Long Passages
+
+Long text segments are automatically split into smaller chunks to prevent overly long TTS generation. The segmentation preserves sentence completeness by splitting at punctuation marks.
+
+**Environment Variables:**
+```bash
+# Maximum segment duration (default: 10 seconds)
+export MAX_SEGMENT_DURATION=10.0
+
+# TTS speaking speed estimation (default: 4.5 chars/second for Chinese)
+export TTS_CHARS_PER_SECOND=4.5
+
+# Punctuation marks for intelligent splitting (default includes Chinese and English)
+export PUNCTUATION_MARKS="。！？.!?，,、；;：:"
+```
+
+**How it works:**
+- Converts `MAX_SEGMENT_DURATION` to character count using `TTS_CHARS_PER_SECOND`
+- Default: 10 seconds × 4.5 chars/sec = 45 characters max per segment
+- Splits at punctuation boundaries to maintain sentence completeness
+- Falls back to whitespace if no punctuation found
+- Logs splitting activity for monitoring
+
+**Example:**
+```bash
+# Allow longer segments (20 seconds max)
+MAX_SEGMENT_DURATION=20.0 python script_segmenter.py --input-file scripts/agentcomp.md
+
+# Adjust for faster speech (6 chars/second)
+TTS_CHARS_PER_SECOND=6.0 python script_segmenter.py --input-file scripts/agentcomp.md
+
+# Use only sentence-ending punctuation for splits
+PUNCTUATION_MARKS="。！？.!?" python script_segmenter.py --input-file scripts/agentcomp.md
+```
+
+### Change Voices
+Edit `dataflow.yml` to modify voice selection:
+
+```yaml
+env:
+  VOICE_NAME: "Luo Xiang"  # Options: Doubao, Luo Xiang, Yang Mi, Zhou Jielun, Ma Yun, Maple, Cove
+```
+
+### Change Silence Duration
+The silence between speaker changes is randomized between 1-3 seconds by default. To customize, edit `voice_output.py`:
+
+```python
+silence_min = 1.0  # minimum silence in seconds
+silence_max = 3.0  # maximum silence in seconds
+```
+
+For fixed silence duration, set both to the same value:
+```python
+silence_min = 2.0  # fixed 2 seconds
+silence_max = 2.0  # fixed 2 seconds
+```
+
+### Change Sample Rate
+PrimeSpeech outputs at 32kHz by default. To change, edit `voice_output.py`:
+
+```python
+sample_rate = 32000  # Default PrimeSpeech sample rate
+```
+
+### Custom Script
+Create your own markdown script and pass it to the segmenter:
+
+```bash
+python script_segmenter.py --input-file scripts/my_custom_script.md
+```
+
+### Custom Output File
+Specify a different output file:
+
+```bash
+python voice_output.py --output-file output/my_podcast.wav
+```
+
+## Output
+
+Generated audio: `output/podcast_output.wav`
+- **Format:** 16-bit PCM WAV
+- **Sample rate:** 32kHz (PrimeSpeech default)
+- **Channels:** Mono
+- **Silence:** Random 1-3 seconds between speaker changes (大牛 ↔ 一帆) for natural pacing
+
+## How It Works
+
+### 1. Text Segmentation
+- `script_segmenter` parses markdown and extracts character segments
+- Long segments are automatically split into smaller chunks (default: 10 seconds / ~45 characters)
+- Splitting respects sentence boundaries using punctuation marks
+- Each chunk is processed sequentially through TTS
+
+### 2. Sequential Processing
+- `script_segmenter` sends one text segment at a time
+- Waits for `segment_complete` signal before sending next segment
+- This ensures audio arrives at `voice_output` in correct order
+
+### 3. Silence Padding
+- `voice_output` tracks the last speaker
+- When speaker changes (大牛 → 一帆 or 一帆 → 大牛):
+  - Receives `segment_complete` from previous speaker
+  - Adds random 1-3 seconds of silence
+  - Receives audio from new speaker
+- No silence is added:
+  - Before the first speaker
+  - Between consecutive segments from the same speaker
+
+### 4. Completion Signal
+- After sending all segments, `script_segmenter` sends `script_complete`
+- `voice_output` receives this signal, writes final WAV file, and exits
+- All nodes then stop gracefully
+
+## Viewer Output
+
+The optional viewer displays:
+- **Color-coded logs:**
+  - 🔴 RED for ERROR
+  - 🟡 YELLOW for WARNING
+  - 🔵 CYAN for INFO
+- **Node-specific icons:**
+  - 📝 Script Segmenter
+  - 🎤 大牛 TTS (Luo Xiang)
+  - 🎙️ 一帆 TTS (Doubao)
+  - 🔊 Voice Output
+- **Real-time events:**
+  - Text segments being sent to each TTS
+  - Audio segments being received
+  - Silence padding being added
+  - Final completion status
+
+### Example Viewer Output
+```
+======================================================================
+🎙️ Podcast Generator Viewer
+======================================================================
+Monitoring pipeline events...
+
+[15:30:45.123] 📝 SCRIPT-SEGMENTER: [INFO] Script Segmenter started
+[15:30:45.234] 📝 SCRIPT-SEGMENTER: [INFO] Text segmentation config: max_duration=10.0s, chars_per_second=4.5, max_length=45 chars
+[15:30:45.345] 📝 SCRIPT-SEGMENTER: [INFO] Loaded 7 segments from scripts/agentcomp.md
+[15:30:45.456] 📝 SCRIPT-SEGMENTER: [INFO] After text segmentation: 7 total segments to process
+[15:30:45.567] 🎤 大牛: 大家好，欢迎来到今天的技术分享。我是大牛。
+[15:30:47.678] 🔊 VOICE-OUTPUT: [INFO] Received audio from 大牛 (48000 samples)
+[15:30:47.789] 🎙️ 一帆: 大家好，我是一帆。今天我们聊聊人工智能的最新进展。
+[15:30:48.890] 🔊 VOICE-OUTPUT: [INFO] Added 2.47s silence (大牛 → 一帆)
+[15:30:50.123] 🔊 VOICE-OUTPUT: [INFO] Received audio from 一帆 (52000 samples)
+[15:30:51.234] 🎤 大牛: 没错，最近AI领域确实有很多激动人心的突破。
+[15:30:52.345] 🔊 VOICE-OUTPUT: [INFO] Added 1.83s silence (一帆 → 大牛)
+...
+[15:31:15.456] 📝 SCRIPT-SEGMENTER: [INFO] All segments processed. Sending script_complete.
+[15:31:15.567] 🔊 VOICE-OUTPUT: [INFO] Podcast saved: output/podcast_output.wav (45.32s)
+
+[15:31:15.678] ✅ PODCAST GENERATION COMPLETE!
+```
+
+## Troubleshooting
+
+### Dynamic nodes must stay running
+If a dynamic node exits early, the dataflow will stall. Keep all terminals open until you see "PODCAST GENERATION COMPLETE" in the viewer.
+
+### Audio segments out of order
+This shouldn't happen due to sequential processing. If it does, check that:
+- Only one `script_segmenter` instance is running
+- The segmenter is receiving `segment_complete` signals correctly
+
+### No audio output
+Check:
+1. PrimeSpeech models are installed: `ls ~/.dora/models/primespeech`
+2. Both TTS nodes started successfully in Terminal 1
+3. No errors in viewer logs
+
+### Stop a running dataflow
+```bash
+dora stop
+```
+
+This stops the static nodes. You'll need to manually stop the dynamic nodes (Ctrl+C in each terminal).
+
+## Example Use Cases
+
+1. **Educational podcasts:** Create teaching content with two voices
+2. **Story narration:** Different voices for different characters
+3. **Interview simulation:** Question-and-answer format
+4. **Language learning:** Dialogue practice with native-sounding voices
+5. **Audio book production:** Multiple narrator voices
+
+## Advanced Usage
+
+### Batch Processing
+Process multiple scripts in sequence:
+
+```bash
+for script in scripts/*.md; do
+    output="output/$(basename "$script" .md).wav"
+    # Start dynamic nodes with custom args
+    python script_segmenter.py --input-file "$script" &
+    python voice_output.py --output-file "$output" &
+    wait
+done
+```
+
+### Custom Markdown Parser
+Extend `parse_markdown()` in `script_segmenter.py` to support:
+- More than two speakers
+- Emotion tags: `【大牛:excited】`
+- Pause controls: `【pause:2s】`
+- Background music markers
+
+## License
+
+Part of the Dora AI framework. See main repository for license information.
+
+## Credits
+
+- **Dora Framework:** https://github.com/dora-rs/dora
+- **PrimeSpeech TTS:** Chinese voice synthesis
+- **Example adapted from:** mac-aec-chat example
+
+Enjoy creating your podcasts with Dora! 🎙️
