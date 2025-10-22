@@ -42,7 +42,7 @@ VOICE_CONFIGS = {
         "repository": "MoYoYoTech/tone-models",
         "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
         "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
-        "reference_audio": "ref_audios/doubao_ref.wav",
+        "reference_audio": "ref_audios/doubao_ref_mix.wav",
         "text_lang": "zh"
     },
     "Luo Xiang": {
