@@ -103,7 +103,9 @@ microphone → mac-aec → asr → maas-client → text-segmenter → primespeec
 1. **Terminal 1**
     ```bash
     conda activate dora_voice_chat
-    export OPENAI_API_KEY="your-new-key"
+    # LLM credentials forwarded through the MaaS node env block
+    export OPENAI_API_KEY="your-openai-key"          # needed for OpenAI routes
+    export ALIBABA_CLOUD_API_KEY="your-alicloud-key" # needed for Qwen / DeepSeek / Moonshot routes
     dora stop
     dora start voice-chat-with-aec-maas.yml
     ```

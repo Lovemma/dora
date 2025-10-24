@@ -48,7 +48,9 @@ nodes:
     env:
       # Local config file in mac-aec-chat directory
       MAAS_CONFIG_PATH: maas_config.local.toml
-      # Pass OpenAI API key directly to the node
+      # Forward API credentials into the MaaS client process
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ALIBABA_CLOUD_API_KEY: ${ALIBABA_CLOUD_API_KEY:-}
       LOG_LEVEL: INFO
 
   # Text Segmenter - buffers LLM output and sends to TTS one segment at a time

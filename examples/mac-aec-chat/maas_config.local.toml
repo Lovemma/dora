@@ -1,6 +1,6 @@
 # MaaS Client Configuration with Browser Automation (Chinese enforced)
 
-default_model = "gpt-4o"
+default_model = "qwen-max"
 system_prompt = """你是AI助手。请以自然流畅的中文口语化表达直接回答问题，避免冗余的思考过程。如果问题不明确，请礼貌地请求澄清。回答既不要过短也不要过长，以适应对话语境。使用口语化输出，回答应准确、精炼且有依据。不要输出 markdown 格式，不要生成不能够被语音合成的内容，不要使用 1, 2， 3 这种书面化的表达方式。"""
 
 max_history_exchanges = 30
@@ -11,14 +11,87 @@ log_level = "INFO"
 enable_tools = true
 enable_local_mcp = true
 
-# OpenAI Provider
+# Alibaba Cloud Provider (Primary)
+[[providers]]
+id = "alicloud"
+kind = "alicloud"
+api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "env:ALIBABA_CLOUD_API_KEY"  # Use environment variable for security
+proxy = false
+
+# OpenAI Provider (Secondary)
 [[providers]]
 id = "openai"
 kind = "openai"
-api_key = "env:OPENAI_API_KEY"  
+api_key = "env:OPENAI_API_KEY"  # Use environment variable for security
 api_url = "https://api.openai.com/v1"
 proxy = false
 
+# ============================================
+# Alibaba Cloud Models
+# ============================================
+
+# Qwen Series - Main models
+[[models]]
+id = "qwen-max"
+route = { provider = "alicloud", model = "qwen-max" }
+
+[[models]]
+id = "qwen-plus"
+route = { provider = "alicloud", model = "qwen-plus" }
+
+[[models]]
+id = "qwen-turbo"
+route = { provider = "alicloud", model = "qwen-turbo" }
+
+[[models]]
+id = "qwen-long"
+route = { provider = "alicloud", model = "qwen-long" }
+
+# Qwen Vision-Language Models
+[[models]]
+id = "qwen-vl-max"
+route = { provider = "alicloud", model = "qwen-vl-max" }
+
+[[models]]
+id = "qwen-vl-plus"
+route = { provider = "alicloud", model = "qwen-vl-plus" }
+
+# Qwen Coder Models
+[[models]]
+id = "qwen-coder-turbo"
+route = { provider = "alicloud", model = "qwen-coder-turbo" }
+
+[[models]]
+id = "qwen-coder-plus"
+route = { provider = "alicloud", model = "qwen-coder-plus" }
+
+# DeepSeek Models
+[[models]]
+id = "deepseek-v3"
+route = { provider = "alicloud", model = "deepseek-v3" }
+
+[[models]]
+id = "deepseek-v3.1"
+route = { provider = "alicloud", model = "deepseek-v3.1" }
+
+[[models]]
+id = "deepseek-r1-0528"
+route = { provider = "alicloud", model = "deepseek-r1-0528" }
+
+# GLM Model
+[[models]]
+id = "glm-4.5"
+route = { provider = "alicloud", model = "glm-4.5" }
+
+# Kimi Model
+[[models]]
+id = "Moonshot-Kimi-K2-Instruct"
+route = { provider = "alicloud", model = "Moonshot-Kimi-K2-Instruct" }
+
+# ============================================
+# OpenAI Models (for fallback/comparison)
+# ============================================
 [[models]]
 id = "gpt-4o-mini"
 route = { provider = "openai", model = "gpt-4o-mini" }
@@ -26,6 +99,7 @@ route = { provider = "openai", model = "gpt-4o-mini" }
 [[models]]
 id = "gpt-4o"
 route = { provider = "openai", model = "gpt-4o" }
+
 
 # Optional MCP servers (comment out if not needed)
 [[mcp.servers]]
