@@ -44,7 +44,26 @@ This example demonstrates:
   └─────────────────┘
 ```
 
+## TTS Options
+
+This example supports two TTS engines:
+
+### Option 1: PrimeSpeech (Local, GPU-based)
+- **Dataflow:** `dataflow.yml`
+- **Pros:** Free, offline, high quality
+- **Cons:** Requires GPU, model downloads (~5GB)
+- **Voices:** Luo Xiang (大牛), Doubao (一帆)
+
+### Option 2: MiniMax T2A (Cloud API)
+- **Dataflow:** `dataflow-minimax.yml`
+- **Pros:** No GPU needed, fast startup, no model downloads
+- **Cons:** API costs, requires internet
+- **Voices:** Liu Xiang (大牛), Doubao (一帆)
+- **Setup:** Requires `MINIMAX_API_KEY` environment variable
+
 ## Node Inventory
+
+### PrimeSpeech Nodes (dataflow.yml)
 
 | Node ID | Type | Role | Inputs | Outputs |
 |---------|------|------|--------|---------|
@@ -54,6 +73,16 @@ This example demonstrates:
 | `voice-output` | Dynamic | Concatenate audio with silence padding, write WAV | `daniu_audio`, `yifan_audio`, `daniu_segment_complete`, `yifan_segment_complete`, `script_complete` | `log` |
 | `viewer` | Dynamic | Monitor logs and events (optional) | All logs and text events | none |
 
+### MiniMax T2A Nodes (dataflow-minimax.yml)
+
+| Node ID | Type | Role | Inputs | Outputs |
+|---------|------|------|--------|---------|
+| `script-segmenter` | Dynamic | Parse markdown, apply intelligent text segmentation, and orchestrate TTS generation | `daniu_segment_complete`, `yifan_segment_complete` | `daniu_text`, `yifan_text`, `script_complete`, `log` |
+| `minimax-daniu` | Static | TTS for 大牛 (Liu Xiang voice via MiniMax API) | `text` | `audio`, `segment_complete`, `log` |
+| `minimax-yifan` | Static | TTS for 一帆 (Doubao voice via MiniMax API) | `text` | `audio`, `segment_complete`, `log` |
+| `voice-output` | Dynamic | Concatenate audio with silence padding, write WAV (with input queues for reliability) | `daniu_audio`, `yifan_audio`, `daniu_segment_complete`, `yifan_segment_complete`, `script_complete` | `log` |
+| `viewer` | Dynamic | Monitor logs and events (optional) | All logs and text events | none |
+
 ## Prerequisites
 Refer to the `mac-aec-chat` example for the required environment setup, dependency installation, and model download steps before running this project.
 
@@ -61,7 +90,9 @@ Refer to the `mac-aec-chat` example for the required environment setup, dependen
 
 **Important:** All terminals must have the same conda environment activated. Dynamic nodes must stay running until the podcast generation is complete.
 
-### Terminal 1 - Start Dataflow (Static Nodes)
+### Using PrimeSpeech (dataflow.yml)
+
+#### Terminal 1 - Start Dataflow (Static Nodes)
 ```bash
 cd examples/podcast-generator
 dora start dataflow.yml
@@ -69,7 +100,15 @@ dora start dataflow.yml
 
 This starts the two PrimeSpeech TTS nodes (static nodes).
 
-### Terminal 2 - Start Script Segmenter
+#### Terminal 2 - Start Voice Output
+```bash
+cd examples/podcast-generator
+python voice_output.py --output-file output/podcast_primespeech.wav
+```
+
+This receives audio from both TTS nodes, adds silence padding, and writes the final WAV file.
+
+#### Terminal 3 - Start Script Segmenter
 ```bash
 cd examples/podcast-generator
 python script_segmenter.py --input-file scripts/agentcomp.md
@@ -77,15 +116,49 @@ python script_segmenter.py --input-file scripts/agentcomp.md
 
 This reads the markdown script and sends text segments to the TTS nodes.
 
-### Terminal 3 - Start Voice Output
+#### Terminal 4 (Optional) - Start Viewer
 ```bash
 cd examples/podcast-generator
-python voice_output.py --output-file output/podcast_output.wav
+python viewer.py
+```
+
+This displays real-time logs and events from all nodes with color-coded output.
+
+### Using MiniMax T2A (dataflow-minimax.yml)
+
+#### Prerequisites
+**IMPORTANT:** Set your MiniMax API key before starting the dataflow:
+```bash
+export MINIMAX_API_KEY="your-api-key-here"
+```
+
+Get your API key from: https://platform.minimax.io/user-center/basic-information/interface-key
+
+#### Terminal 1 - Start Dataflow (Static Nodes)
+```bash
+cd examples/podcast-generator
+dora start dataflow-minimax.yml
+```
+
+This starts the two MiniMax T2A TTS nodes (static nodes).
+
+#### Terminal 2 - Start Voice Output
+```bash
+cd examples/podcast-generator
+python voice_output.py --output-file output/podcast_minimax.wav
 ```
 
 This receives audio from both TTS nodes, adds silence padding, and writes the final WAV file.
 
-### Terminal 4 (Optional) - Start Viewer
+#### Terminal 3 - Start Script Segmenter
+```bash
+cd examples/podcast-generator
+python script_segmenter.py --input-file scripts/agentcomp.md
+```
+
+This reads the markdown script and sends text segments to the TTS nodes.
+
+#### Terminal 4 (Optional) - Start Viewer
 ```bash
 cd examples/podcast-generator
 python viewer.py
@@ -98,9 +171,9 @@ This displays real-time logs and events from all nodes with color-coded output.
 There is no strict timing requirement, but start the `voice_output.py` node before the `script_segmenter.py` node so no audio segments are missed.
 
 **Recommended sequence:**
-1. Terminal 1: `dora start dataflow.yml`
-2. Terminal 3: `python voice_output.py --output-file output/podcast_output.wav`
-3. Terminal 2: `python script_segmenter.py --input-file scripts/agentcomp.md`
+1. Terminal 1: `dora start dataflow.yml` (or `dataflow-minimax.yml`)
+2. Terminal 2: `python voice_output.py --output-file output/podcast_output.wav`
+3. Terminal 3: `python script_segmenter.py --input-file scripts/agentcomp.md`
 4. Terminal 4 (optional): `python viewer.py`
 
 You can take your time between launches; just keep the dynamic nodes running until the podcast finishes generating.
@@ -168,12 +241,61 @@ PUNCTUATION_MARKS="。！？.!?" python script_segmenter.py --input-file scripts
 ```
 
 ### Change Voices
+
+#### PrimeSpeech Voices (dataflow.yml)
 Edit `dataflow.yml` to modify voice selection:
 
 ```yaml
 env:
   VOICE_NAME: "Luo Xiang"  # Options: Doubao, Luo Xiang, Yang Mi, Zhou Jielun, Ma Yun, Maple, Cove
 ```
+
+#### MiniMax T2A Voices (dataflow-minimax.yml)
+
+To use different voices:
+1. Visit the [MiniMax Audio Portal](https://www.minimax.io/audio/text-to-speech)
+2. Browse and preview available voices
+3. Copy the voice ID for your chosen voice
+4. Update `dataflow-minimax.yml` with the voice ID:
+
+```yaml
+env:
+  MINIMAX_VOICE_ID: "your-voice-id-here"  # Replace with voice ID from MiniMax portal
+```
+
+**Current configuration in dataflow-minimax.yml:**
+- **大牛 (Daniu):** `moss_audio_9c223de9-7ce1-11f0-9b9f-463feaa3106a`
+- **一帆 (Yifan):** `moss_audio_aaa1346a-7ce7-11f0-8e61-2e6e3c7ee85d`
+
+**Additional voice parameters:**
+```yaml
+env:
+  MINIMAX_SPEED: "1.1"          # Speech speed (0.5-2.0)
+  MINIMAX_VOL: "1.0"            # Volume (0-2.0)
+  MINIMAX_PITCH: "0"            # Pitch adjustment (-12 to 12)
+  BATCH_DURATION_MS: "2000"     # Audio batching in ms (prevents packet loss)
+```
+
+#### Preventing Audio Packet Loss (MiniMax Only)
+
+The MiniMax dataflow uses two mechanisms to prevent packet loss:
+
+**1. Audio Batching (`BATCH_DURATION_MS: "2000"`):**
+- Accumulates audio chunks into 2-second batches before sending to Dora
+- Reduces messages from ~200 to ~3-4 per synthesis
+- Prevents shared memory exhaustion
+
+**2. Input Audio Queues (`queue_size: 1000`):**
+- Configured in `dataflow-minimax.yml` for voice-output node
+- Buffers up to 1000 audio messages per speaker
+- Prevents dropped packets when audio arrives in bursts
+
+Without these settings, you may experience:
+- Missing audio fragments (gaps in fragment numbers)
+- 50%+ silence in the output WAV file
+- Choppy, interrupted speech
+
+These settings are already configured in `dataflow-minimax.yml` and don't need to be changed unless you experience issues.
 
 ### Change Silence Duration
 The silence between speaker changes is randomized between 1-3 seconds by default. To customize, edit `voice_output.py`:

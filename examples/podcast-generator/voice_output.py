@@ -39,6 +39,9 @@ def main():
     log_level = "DEBUG"  # Enable DEBUG logging for troubleshooting
 
     # Configuration
+    # "Segment" = one incoming text payload; MiniMax streams each segment as
+    # multiple audio "fragments". fragment_num == 1 marks the start of a new
+    # segment and is the moment to inject speaker-switch silence.
     sample_rate = 32000  # PrimeSpeech default (32 kHz, not 24 kHz!)
     silence_min = 1.0  # minimum silence in seconds
     silence_max = 3.0  # maximum silence in seconds
@@ -63,14 +66,24 @@ def main():
             if event_id == "daniu_audio":
                 send_log(node, "DEBUG", ">>> Received daniu_audio event", log_level)
 
-                # Add silence BEFORE audio if speaker changed
-                if last_speaker is not None and last_speaker != 'daniu':
-                    # Random silence between 1-3 seconds
-                    silence_duration = random.uniform(silence_min, silence_max)
-                    silence_samples = int(sample_rate * silence_duration)
-                    silence = np.zeros(silence_samples, dtype=np.int16)
-                    audio_buffer.append(silence)
-                    send_log(node, "INFO", f"Added {silence_duration:.2f}s silence ({last_speaker} → 大牛)", log_level)
+                metadata = event.get("metadata", {})
+                fragment_num = metadata.get("fragment_num")
+                is_segment_start = fragment_num == 1 if fragment_num is not None else True
+
+                # Add silence BEFORE audio only when a new segment begins
+                if is_segment_start:
+                    if last_speaker is not None and last_speaker != 'daniu':
+                        silence_duration = random.uniform(silence_min, silence_max)
+                        silence_samples = int(sample_rate * silence_duration)
+                        silence = np.zeros(silence_samples, dtype=np.int16)
+                        audio_buffer.append(silence)
+                        send_log(
+                            node,
+                            "INFO",
+                            f"Added {silence_duration:.2f}s silence ({last_speaker} → 大牛)",
+                            log_level,
+                        )
+                    last_speaker = 'daniu'
 
                 # Append audio - use as_py() like audio_player does
                 try:
@@ -98,7 +111,13 @@ def main():
 
                         audio_buffer.append(audio_data)
                         segment_count += 1
-                        send_log(node, "INFO", f"✓ Received audio from 大牛 ({len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)", log_level)
+                        fragment_label = fragment_num if fragment_num is not None else "?"
+                        send_log(
+                            node,
+                            "INFO",
+                            f"✓ Received audio from 大牛 (fragment #{fragment_label}, {len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)",
+                            log_level,
+                        )
                 except Exception as e:
                     send_log(node, "ERROR", f"Failed to process daniu_audio: {e}", log_level)
                     import traceback
@@ -107,14 +126,24 @@ def main():
             elif event_id == "yifan_audio":
                 send_log(node, "DEBUG", ">>> Received yifan_audio event", log_level)
 
-                # Add silence BEFORE audio if speaker changed
-                if last_speaker is not None and last_speaker != 'yifan':
-                    # Random silence between 1-3 seconds
-                    silence_duration = random.uniform(silence_min, silence_max)
-                    silence_samples = int(sample_rate * silence_duration)
-                    silence = np.zeros(silence_samples, dtype=np.int16)
-                    audio_buffer.append(silence)
-                    send_log(node, "INFO", f"Added {silence_duration:.2f}s silence ({last_speaker} → 一帆)", log_level)
+                metadata = event.get("metadata", {})
+                fragment_num = metadata.get("fragment_num")
+                is_segment_start = fragment_num == 1 if fragment_num is not None else True
+
+                # Add silence BEFORE audio only when a new segment begins
+                if is_segment_start:
+                    if last_speaker is not None and last_speaker != 'yifan':
+                        silence_duration = random.uniform(silence_min, silence_max)
+                        silence_samples = int(sample_rate * silence_duration)
+                        silence = np.zeros(silence_samples, dtype=np.int16)
+                        audio_buffer.append(silence)
+                        send_log(
+                            node,
+                            "INFO",
+                            f"Added {silence_duration:.2f}s silence ({last_speaker} → 一帆)",
+                            log_level,
+                        )
+                    last_speaker = 'yifan'
 
                 # Append audio - use as_py() like audio_player does
                 try:
@@ -142,7 +171,13 @@ def main():
 
                         audio_buffer.append(audio_data)
                         segment_count += 1
-                        send_log(node, "INFO", f"✓ Received audio from 一帆 ({len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)", log_level)
+                        fragment_label = fragment_num if fragment_num is not None else "?"
+                        send_log(
+                            node,
+                            "INFO",
+                            f"✓ Received audio from 一帆 (fragment #{fragment_label}, {len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)",
+                            log_level,
+                        )
                 except Exception as e:
                     send_log(node, "ERROR", f"Failed to process yifan_audio: {e}", log_level)
                     import traceback
