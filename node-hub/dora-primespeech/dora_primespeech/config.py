@@ -3,9 +3,9 @@ Configuration for PrimeSpeech TTS node.
 """
 
 import os
+import typing
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Any
-from dataclasses import dataclass, field
 
 
 @dataclass
@@ -75,8 +75,8 @@ VOICE_CONFIGS = {
         "repository": "MoYoYoTech/tone-models",
         "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
         "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
-        "reference_audio": "ref_audios/doubao_ref_mix.wav",
-        "prompt_text": "最近工作太忙了，天天都在赶deadline，真希望能有个long vacation, 好好放松一下。",
+        "reference_audio": "ref_audios/doubao_ref_mix_new.wav",
+        "prompt_text": "这家 restaurant 的 steak 很有名，但 vegetable salad 的 price 有一点贵。",
         "text_lang": "zh",
         "prompt_lang": "zh",
         "speed_factor": 1.1,
