@@ -43,8 +43,18 @@ def main():
     # multiple audio "fragments". fragment_num == 1 marks the start of a new
     # segment and is the moment to inject speaker-switch silence.
     sample_rate = 32000  # PrimeSpeech default (32 kHz, not 24 kHz!)
-    silence_min = 1.0  # minimum silence in seconds
-    silence_max = 3.0  # maximum silence in seconds
+    silence_min = 1.5  # minimum silence in seconds
+    silence_max = 1.5  # maximum silence in seconds
+
+    # Supported speakers (channel id → display name)
+    speakers = {
+        "daniu": "大牛",
+        "yifan": "一帆",
+        "boyu": "博宇",
+    }
+
+    audio_suffix = "_audio"
+    segment_complete_suffix = "_segment_complete"
 
     # State
     audio_buffer = []
@@ -56,6 +66,87 @@ def main():
     send_log(node, "INFO", "Entering event loop, waiting for audio...", log_level)
 
     # Event loop
+    def process_audio_event(speaker_key, event):
+        nonlocal last_speaker, segment_count
+
+        speaker_name = speakers[speaker_key]
+        metadata = event.get("metadata", {}) or {}
+        fragment_num = metadata.get("fragment_num")
+        is_segment_start = fragment_num == 1 if fragment_num is not None else True
+
+        # Add silence BEFORE audio only when a new segment begins and the speaker switches
+        if is_segment_start and last_speaker is not None and last_speaker != speaker_key:
+            silence_duration = random.uniform(silence_min, silence_max)
+            silence_samples = int(sample_rate * silence_duration)
+            silence = np.zeros(silence_samples, dtype=np.int16)
+            audio_buffer.append(silence)
+            previous_name = speakers.get(last_speaker, last_speaker)
+            send_log(
+                node,
+                "INFO",
+                f"Added {silence_duration:.2f}s silence ({previous_name} → {speaker_name})",
+                log_level,
+            )
+
+        if is_segment_start:
+            last_speaker = speaker_key
+
+        # Append audio - use as_py() like audio_player does
+        try:
+            raw_value = event.get("value")
+            if raw_value and len(raw_value) > 0:
+                audio_data = raw_value[0].as_py()
+
+                # Convert to numpy array if needed
+                if not isinstance(audio_data, np.ndarray):
+                    audio_data = np.array(audio_data, dtype=np.float32)
+
+                original_dtype = audio_data.dtype
+                send_log(
+                    node,
+                    "DEBUG",
+                    f"Received audio from {speaker_name}: len={len(audio_data)}, dtype={original_dtype}, range=[{audio_data.min():.4f}, {audio_data.max():.4f}]",
+                    log_level,
+                )
+
+                # Convert float32 to int16 properly
+                if audio_data.dtype == np.float32 or audio_data.dtype == np.float64:
+                    audio_data = (audio_data * 32767).astype(np.int16)
+                    send_log(
+                        node,
+                        "DEBUG",
+                        f"Converted {original_dtype} to int16 for {speaker_name} (range: {audio_data.min()} to {audio_data.max()})",
+                        log_level,
+                    )
+                elif audio_data.dtype != np.int16:
+                    audio_data = audio_data.astype(np.int16)
+                    send_log(
+                        node,
+                        "WARNING",
+                        f"Unknown dtype {original_dtype} for {speaker_name}, casting to int16",
+                        log_level,
+                    )
+
+                audio_buffer.append(audio_data)
+                segment_count += 1
+                fragment_label = fragment_num if fragment_num is not None else "?"
+                send_log(
+                    node,
+                    "INFO",
+                    f"✓ Received audio from {speaker_name} (fragment #{fragment_label}, {len(audio_data)} samples, buffer now has {len(audio_buffer)} arrays)",
+                    log_level,
+                )
+        except Exception as e:
+            import traceback
+
+            send_log(
+                node,
+                "ERROR",
+                f"Failed to process {speaker_key}_audio: {e}",
+                log_level,
+            )
+            send_log(node, "ERROR", f"Traceback: {traceback.format_exc()}", log_level)
+
     for event in node:
         send_log(node, "DEBUG", f"Received event type: {event['type']}", log_level)
 
@@ -63,135 +154,22 @@ def main():
             event_id = event["id"]
             send_log(node, "DEBUG", f"Processing INPUT: {event_id}", log_level)
 
-            if event_id == "daniu_audio":
-                send_log(node, "DEBUG", ">>> Received daniu_audio event", log_level)
+            if event_id.endswith(audio_suffix):
+                speaker_key = event_id[: -len(audio_suffix)]
+                if speaker_key in speakers:
+                    send_log(node, "DEBUG", f">>> Received {speaker_key}_audio event", log_level)
+                    process_audio_event(speaker_key, event)
 
-                metadata = event.get("metadata", {})
-                fragment_num = metadata.get("fragment_num")
-                is_segment_start = fragment_num == 1 if fragment_num is not None else True
-
-                # Add silence BEFORE audio only when a new segment begins
-                if is_segment_start:
-                    if last_speaker is not None and last_speaker != 'daniu':
-                        silence_duration = random.uniform(silence_min, silence_max)
-                        silence_samples = int(sample_rate * silence_duration)
-                        silence = np.zeros(silence_samples, dtype=np.int16)
-                        audio_buffer.append(silence)
-                        send_log(
-                            node,
-                            "INFO",
-                            f"Added {silence_duration:.2f}s silence ({last_speaker} → 大牛)",
-                            log_level,
-                        )
-                    last_speaker = 'daniu'
-
-                # Append audio - use as_py() like audio_player does
-                try:
-                    # Get audio data using as_py() method (same as audio_player.py line 334)
-                    raw_value = event.get("value")
-                    if raw_value and len(raw_value) > 0:
-                        audio_data = raw_value[0].as_py()
-
-                        # Convert to numpy array if needed
-                        if not isinstance(audio_data, np.ndarray):
-                            audio_data = np.array(audio_data, dtype=np.float32)
-
-                        original_dtype = audio_data.dtype
-                        send_log(node, "DEBUG", f"Received audio: len={len(audio_data)}, dtype={original_dtype}, range=[{audio_data.min():.4f}, {audio_data.max():.4f}]", log_level)
-
-                        # Convert float32 to int16 properly
-                        if audio_data.dtype == np.float32 or audio_data.dtype == np.float64:
-                            # Audio is in float format (range -1.0 to 1.0), convert to int16
-                            audio_data = (audio_data * 32767).astype(np.int16)
-                            send_log(node, "DEBUG", f"Converted {original_dtype} to int16 (range: {audio_data.min()} to {audio_data.max()})", log_level)
-                        elif audio_data.dtype != np.int16:
-                            # Unknown dtype, just cast
-                            audio_data = audio_data.astype(np.int16)
-                            send_log(node, "WARNING", f"Unknown dtype {original_dtype}, casting to int16", log_level)
-
-                        audio_buffer.append(audio_data)
-                        segment_count += 1
-                        fragment_label = fragment_num if fragment_num is not None else "?"
-                        send_log(
-                            node,
-                            "INFO",
-                            f"✓ Received audio from 大牛 (fragment #{fragment_label}, {len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)",
-                            log_level,
-                        )
-                except Exception as e:
-                    send_log(node, "ERROR", f"Failed to process daniu_audio: {e}", log_level)
-                    import traceback
-                    send_log(node, "ERROR", f"Traceback: {traceback.format_exc()}", log_level)
-
-            elif event_id == "yifan_audio":
-                send_log(node, "DEBUG", ">>> Received yifan_audio event", log_level)
-
-                metadata = event.get("metadata", {})
-                fragment_num = metadata.get("fragment_num")
-                is_segment_start = fragment_num == 1 if fragment_num is not None else True
-
-                # Add silence BEFORE audio only when a new segment begins
-                if is_segment_start:
-                    if last_speaker is not None and last_speaker != 'yifan':
-                        silence_duration = random.uniform(silence_min, silence_max)
-                        silence_samples = int(sample_rate * silence_duration)
-                        silence = np.zeros(silence_samples, dtype=np.int16)
-                        audio_buffer.append(silence)
-                        send_log(
-                            node,
-                            "INFO",
-                            f"Added {silence_duration:.2f}s silence ({last_speaker} → 一帆)",
-                            log_level,
-                        )
-                    last_speaker = 'yifan'
-
-                # Append audio - use as_py() like audio_player does
-                try:
-                    # Get audio data using as_py() method (same as audio_player.py line 334)
-                    raw_value = event.get("value")
-                    if raw_value and len(raw_value) > 0:
-                        audio_data = raw_value[0].as_py()
-
-                        # Convert to numpy array if needed
-                        if not isinstance(audio_data, np.ndarray):
-                            audio_data = np.array(audio_data, dtype=np.float32)
-
-                        original_dtype = audio_data.dtype
-                        send_log(node, "DEBUG", f"Received audio: len={len(audio_data)}, dtype={original_dtype}, range=[{audio_data.min():.4f}, {audio_data.max():.4f}]", log_level)
-
-                        # Convert float32 to int16 properly
-                        if audio_data.dtype == np.float32 or audio_data.dtype == np.float64:
-                            # Audio is in float format (range -1.0 to 1.0), convert to int16
-                            audio_data = (audio_data * 32767).astype(np.int16)
-                            send_log(node, "DEBUG", f"Converted {original_dtype} to int16 (range: {audio_data.min()} to {audio_data.max()})", log_level)
-                        elif audio_data.dtype != np.int16:
-                            # Unknown dtype, just cast
-                            audio_data = audio_data.astype(np.int16)
-                            send_log(node, "WARNING", f"Unknown dtype {original_dtype}, casting to int16", log_level)
-
-                        audio_buffer.append(audio_data)
-                        segment_count += 1
-                        fragment_label = fragment_num if fragment_num is not None else "?"
-                        send_log(
-                            node,
-                            "INFO",
-                            f"✓ Received audio from 一帆 (fragment #{fragment_label}, {len(audio_data)} samples, {original_dtype}→int16, buffer now has {len(audio_buffer)} arrays)",
-                            log_level,
-                        )
-                except Exception as e:
-                    send_log(node, "ERROR", f"Failed to process yifan_audio: {e}", log_level)
-                    import traceback
-                    send_log(node, "ERROR", f"Traceback: {traceback.format_exc()}", log_level)
-
-            elif event_id == "daniu_segment_complete":
-                # Just track the speaker, don't add silence here
-                last_speaker = 'daniu'
-                send_log(node, "DEBUG", f"大牛 segment complete, last_speaker = {last_speaker}", log_level)
-
-            elif event_id == "yifan_segment_complete":
-                # Just track the speaker, don't add silence here
-                last_speaker = 'yifan'
-                send_log(node, "DEBUG", f"一帆 segment complete, last_speaker = {last_speaker}", log_level)
+            elif event_id.endswith(segment_complete_suffix):
+                speaker_key = event_id[: -len(segment_complete_suffix)]
+                if speaker_key in speakers:
+                    last_speaker = speaker_key
+                    send_log(
+                        node,
+                        "DEBUG",
+                        f"{speakers[speaker_key]} segment complete, last_speaker = {last_speaker}",
+                        log_level,
+                    )
 
             elif event_id == "script_complete":
                 send_log(node, "INFO", f"Script complete. Concatenating {segment_count} segments...", log_level)

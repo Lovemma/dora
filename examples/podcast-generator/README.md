@@ -263,18 +263,36 @@ env:
   MINIMAX_VOICE_ID: "your-voice-id-here"  # Replace with voice ID from MiniMax portal
 ```
 
-**Current configuration in dataflow-minimax.yml:**
-- **大牛 (Daniu):** `moss_audio_9c223de9-7ce1-11f0-9b9f-463feaa3106a`
-- **一帆 (Yifan):** `moss_audio_aaa1346a-7ce7-11f0-8e61-2e6e3c7ee85d`
+- **Current configuration in** `dataflow-minimax.yml`
+  - **大牛 (Daniu):** `ttv-voice-2025103011222725-sg8dZxUP`
+  - **一帆 (Yifan):** `moss_audio_aaa1346a-7ce7-11f0-8e61-2e6e3c7ee85d`
+
+- **Current configuration in** `dataflow-minimax-trio.yml`
+  - **大牛 (Daniu):** `ttv-voice-2025103011222725-sg8dZxUP`
+  - **一帆 (Yifan):** `moss_audio_aaa1346a-7ce7-11f0-8e61-2e6e3c7ee85d`
+  - **博宇 (Boyu):** `moss_audio_9c223de9-7ce1-11f0-9b9f-463feaa3106a`
 
 **Additional voice parameters:**
-```yaml
-env:
-  MINIMAX_SPEED: "1.1"          # Speech speed (0.5-2.0)
-  MINIMAX_VOL: "1.0"            # Volume (0-2.0)
-  MINIMAX_PITCH: "0"            # Pitch adjustment (-12 to 12)
-  BATCH_DURATION_MS: "2000"     # Audio batching in ms (prevents packet loss)
-```
+
+- Each MiniMax node accepts the following knobs:
+
+  ```yaml
+  env:
+    MINIMAX_SPEED: "<0.5-2.0>"           # Speech speed multiplier
+    MINIMAX_VOL: "<0-2.0>"              # Output loudness
+    MINIMAX_PITCH: "<-12-12>"           # Semitone shift
+    ENABLE_ENGLISH_NORMALIZATION: "true"  # Toggles MiniMax english_normalization flag
+    BATCH_DURATION_MS: "2000"           # Leave at 2000ms to avoid packet drops
+  ```
+
+- Current values in this repo:
+  - `dataflow-minimax.yml`
+    - Daniu: speed `1.0`, volume `1.0`, pitch `-1`
+    - Yifan: speed `1.0`, volume `1.0`, pitch `0`
+  - `dataflow-minimax-trio.yml`
+    - Daniu: speed `1.0`, volume `1.0`, pitch `-1`
+    - Yifan: speed `1.0`, volume `1.0`, pitch `0`
+    - Boyu: speed `1.0`, volume `1.1`, pitch `1`
 
 #### Preventing Audio Packet Loss (MiniMax Only)
 

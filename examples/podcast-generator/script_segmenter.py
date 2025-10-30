@@ -9,7 +9,7 @@ import json
 import time
 import os
 import re
-from typing import List, Tuple, Iterable
+from typing import Dict, List, Optional, Tuple, Iterable
 from dora import Node
 import pyarrow as pa
 
@@ -119,62 +119,71 @@ def split_long_text(
 
 
 def parse_markdown(file_path):
-    """Parse markdown and extract segments marked by 【大牛】 and 【一帆】
+    """Parse markdown and extract segments for supported characters.
 
     Accumulates all text for a character until another character tag is found.
 
-    Supports both plain and markdown-formatted tags:
+    Supports both plain and markdown-formatted tags, for example:
     - 【大牛】 text here
-    - **【大牛】** text here
+    - **【博宇】** text here
     """
-    segments = []
-    current_character = None
-    current_text = []
+    segments: List[Tuple[str, str]] = []
+    current_character: Optional[str] = None
+    current_text: List[str] = []
+
+    # Map markdown tag content to our channel identifiers
+    character_aliases: Dict[str, str] = {
+        "大牛": "daniu",
+        "一帆": "yifan",
+        "博宇": "boyu",
+        "Boyu": "boyu",
+        "boyu": "boyu",
+    }
+
+    def finalize_segment() -> None:
+        nonlocal current_character, current_text
+        if current_character and current_text:
+            combined_text = " ".join(current_text).strip()
+            if combined_text:
+                segments.append((current_character, combined_text))
+        current_text = []
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
+        for raw_line in f:
+            line = raw_line.strip()
 
             # Skip empty lines and headers
             if not line or line.startswith('#'):
                 continue
 
-            # Check if line contains a character tag
-            if '【大牛】' in line:
-                # Save previous segment if exists
-                if current_character and current_text:
-                    combined_text = ' '.join(current_text)
-                    segments.append((current_character, combined_text))
+            # Detect character tags inside the line
+            match = re.search(r'【([^】]+)】', line)
+            if match:
+                finalize_segment()
 
-                # Start new segment for 大牛
-                text = line.split('【大牛】', 1)[1].strip()
-                text = text.lstrip('*').strip()
-                current_character = 'daniu'
-                current_text = [text] if text else []
+                tag_content = match.group(1).strip()
+                character = character_aliases.get(tag_content)
+                if not character:
+                    # Unknown character tag; skip this section entirely
+                    current_character = None
+                    current_text = []
+                    continue
 
-            elif '【一帆】' in line:
-                # Save previous segment if exists
-                if current_character and current_text:
-                    combined_text = ' '.join(current_text)
-                    segments.append((current_character, combined_text))
+                # Extract the text following the tag, removing markdown markers
+                remainder = line.split('】', 1)[1] if '】' in line else ''
+                remainder = remainder.lstrip('*').strip()
 
-                # Start new segment for 一帆
-                text = line.split('【一帆】', 1)[1].strip()
-                text = text.lstrip('*').strip()
-                current_character = 'yifan'
-                current_text = [text] if text else []
+                current_character = character
+                current_text = [remainder] if remainder else []
+                continue
 
-            elif current_character:
+            if current_character:
                 # Continue accumulating text for current character
-                # Remove markdown bold markers
-                line = line.lstrip('*').rstrip('*').strip()
-                if line:
-                    current_text.append(line)
+                clean_line = line.strip('*').strip()
+                if clean_line:
+                    current_text.append(clean_line)
 
-        # Don't forget the last segment
-        if current_character and current_text:
-            combined_text = ' '.join(current_text)
-            segments.append((current_character, combined_text))
+        finalize_segment()
 
     return segments
 
