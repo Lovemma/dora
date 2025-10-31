@@ -118,10 +118,10 @@ class StreamingMoYoYoTTSWrapper:
         # Optimization parameters - disable MoYoYo's broken "streaming"
         self.optimization_config = {
             "batch_size": 100,  # Smaller batches for faster first output
-            "text_split_method": "cut0",  # Automatic segmentation
+            "text_split_method": "cut5",  # Automatic segmentation
             "split_bucket": True,  # Enable bucketing
             "return_fragment": False,  # DISABLE MoYoYo's broken streaming
-            "fragment_interval": 0.07,
+            # "fragment_interval": 0.07,
             "parallel_infer": False,
             "top_k": 5,
             "top_p": 1,
@@ -414,7 +414,7 @@ class StreamingMoYoYoTTSWrapper:
         # 去除中英文标点符号，保留字母、数字、下划线、中文和空格
         return re.sub(r'[^\w\s\u4e00-\u9fa5]', ' ', text)
 
-    def synthesize(self, text, language="zh", speed=1.1):
+    def synthesize(self, text, language="zh", speed=1.1, fragment_interval=0.07):
         """Synthesize speech from text (non-streaming).
         
         Args:
@@ -439,7 +439,7 @@ class StreamingMoYoYoTTSWrapper:
         
         try:
             # Prepare inputs
-            text = self._clean_text(text)
+            # text = self._clean_text(text)
             inputs = {
                 "text": text,
                 "text_lang": language,
@@ -448,6 +448,7 @@ class StreamingMoYoYoTTSWrapper:
                 "prompt_lang": "zh",
                 "speed_factor": speed,
                 "return_fragment": False,
+                'fragment_interval': fragment_interval,
                 **self.optimization_config
             }
             

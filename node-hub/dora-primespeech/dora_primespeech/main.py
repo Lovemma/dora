@@ -361,7 +361,7 @@ def main():
                         
                     else:
                         # Batch synthesis
-                        sample_rate, audio_array = tts_engine.synthesize(text, language=language, speed=speed)
+                        sample_rate, audio_array = tts_engine.synthesize(text, language=language, speed=speed, fragment_interval=config.FRAGMENT_INTERVAL)
                         
                         synthesis_time = time.time() - start_time
                         audio_duration = len(audio_array) / sample_rate
