@@ -43,8 +43,8 @@ def main():
     # multiple audio "fragments". fragment_num == 1 marks the start of a new
     # segment and is the moment to inject speaker-switch silence.
     sample_rate = 32000  # PrimeSpeech default (32 kHz, not 24 kHz!)
-    silence_min = 1.5  # minimum silence in seconds
-    silence_max = 1.5  # maximum silence in seconds
+    silence_min = 0.3  # minimum silence in seconds
+    silence_max = 1.2  # maximum silence in seconds
 
     # Supported speakers (channel id → display name)
     speakers = {

@@ -3,15 +3,18 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use figment::{Figment, providers::{Env, Format, Json, Toml, Yaml}};
+use figment::{
+    Figment,
+    providers::{Env, Format, Json, Toml, Yaml},
+};
 use rmcp::{RoleClient, ServiceExt, service::RunningService, transport::ConfigureCommandExt};
 use serde::Deserialize;
 
-use crate::client::{ChatClient, OpenaiClient, GeminiClient};
+use crate::client::{ChatClient, GeminiClient, OpenaiClient};
 use crate::tool::{Tool, ToolSet, get_mcp_tools};
 
 /// Main configuration structure for the MaaS client.
-/// 
+///
 /// Loaded from TOML/YAML/JSON files and environment variables.
 /// Supports multiple providers and flexible model routing.
 #[derive(Clone, Debug, Deserialize)]
@@ -23,12 +26,12 @@ pub struct Config {
     pub providers: Vec<ProviderConfig>,
     pub models: Vec<ModelConfig>,
     #[serde(default = "default_log_level")]
-    pub log_level: String,  // Used for configuring log verbosity
+    pub log_level: String, // Used for configuring log verbosity
     #[serde(default)]
-    pub enable_tools: bool,  // Enable MCP tool support
+    pub enable_tools: bool, // Enable MCP tool support
     #[serde(default)]
-    pub enable_local_mcp: bool,  // Enable local MCP host (false = pass through to client)
-    pub mcp: Option<McpConfig>,  // MCP server configurations
+    pub enable_local_mcp: bool, // Enable local MCP host (false = pass through to client)
+    pub mcp: Option<McpConfig>, // MCP server configurations
 }
 
 fn default_log_level() -> String {
@@ -84,13 +87,14 @@ pub struct ModelRoute {
 
 impl Config {
     /// Load configuration from file specified by MAAS_CONFIG_PATH environment variable.
-    /// 
+    ///
     /// Supports TOML, YAML, and JSON formats based on file extension.
     /// Falls back to `maas_config.toml` if MAAS_CONFIG_PATH is not set.
     pub fn load() -> eyre::Result<Self> {
-        let config_file = std::env::var("MAAS_CONFIG_PATH").unwrap_or_else(|_| "maas_config.toml".to_string());
+        let config_file =
+            std::env::var("MAAS_CONFIG_PATH").unwrap_or_else(|_| "maas_config.toml".to_string());
         let config_path = PathBuf::from(config_file);
-        
+
         if !config_path.exists() {
             eprintln!("Config file not found at: {}", config_path.display());
             std::process::exit(1);
@@ -107,19 +111,15 @@ impl Config {
     }
 
     /// Create client instances for all configured providers.
-    /// 
+    ///
     /// Returns a map from provider ID to client implementation.
     pub fn create_clients(&self) -> HashMap<String, Arc<dyn ChatClient>> {
         let mut clients = HashMap::new();
-        
+
         for provider in &self.providers {
             let client: Arc<dyn ChatClient> = match provider {
-                ProviderConfig::Openai(config) => {
-                    Arc::new(OpenaiClient::new(config))
-                }
-                ProviderConfig::Gemini(config) => {
-                    Arc::new(GeminiClient::new(config))
-                }
+                ProviderConfig::Openai(config) => Arc::new(OpenaiClient::new(config)),
+                ProviderConfig::Gemini(config) => Arc::new(GeminiClient::new(config)),
                 ProviderConfig::Alicloud(config) => {
                     // Alicloud uses OpenAI-compatible API, so we can reuse OpenaiClient
                     Arc::new(OpenaiClient::new(&OpenaiConfig {
@@ -130,35 +130,33 @@ impl Config {
                     }))
                 }
             };
-            
+
             let provider_id = match provider {
                 ProviderConfig::Openai(c) => &c.id,
                 ProviderConfig::Gemini(c) => &c.id,
                 ProviderConfig::Alicloud(c) => &c.id,
             };
-            
+
             clients.insert(provider_id.clone(), client);
         }
-        
+
         clients
     }
 
     /// Route a model ID to its provider and actual model name.
-    /// 
+    ///
     /// # Arguments
     /// * `model_id` - The configured model ID (e.g., "gpt-4")
-    /// 
+    ///
     /// # Returns
     /// * `Some((provider_id, model_name))` - Provider and actual model name
     /// * `None` - No routing found for the model ID
     pub fn route_model(&self, model_id: &str) -> Option<(String, String)> {
-        self.models.iter()
-            .find(|m| m.id == model_id)
-            .map(|m| {
-                let provider = m.route.provider.clone();
-                let model = m.route.model.clone().unwrap_or_else(|| m.id.clone());
-                (provider, model)
-            })
+        self.models.iter().find(|m| m.id == model_id).map(|m| {
+            let provider = m.route.provider.clone();
+            let model = m.route.model.clone().unwrap_or_else(|| m.id.clone());
+            (provider, model)
+        })
     }
 }
 
@@ -182,13 +180,9 @@ pub struct McpServerConfig {
 #[serde(tag = "protocol", rename_all = "snake_case")]
 pub enum McpServerTransportConfig {
     /// HTTP streaming transport
-    Streamable {
-        url: String,
-    },
+    Streamable { url: String },
     /// Server-Sent Events transport
-    Sse {
-        url: String,
-    },
+    Sse { url: String },
     /// Standard I/O transport (child process)
     Stdio {
         command: String,
@@ -211,7 +205,11 @@ impl McpServerTransportConfig {
                     match ().serve(transport).await {
                         Ok(client) => return Ok(client),
                         Err(e) => {
-                            eprintln!("Attempt {}/5 - Failed to start streamable transport: {}", i+1, e);
+                            eprintln!(
+                                "Attempt {}/5 - Failed to start streamable transport: {}",
+                                i + 1,
+                                e
+                            );
                             if i < 4 {
                                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                             }
@@ -257,7 +255,7 @@ impl Config {
 
         let mut tool_set = ToolSet::default();
         let mut mcp_clients = HashMap::new();
-        
+
         // FIX: Made MCP server initialization graceful - if one server fails, others can still work
         // This prevents a single misconfigured server from blocking all MCP functionality
         if let Some(mcp_config) = &self.mcp {
@@ -269,13 +267,16 @@ impl Config {
                         eprintln!("Successfully started MCP server: {}", server.name);
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to start MCP server '{}': {}", server.name, e);
+                        eprintln!(
+                            "Warning: Failed to start MCP server '{}': {}",
+                            server.name, e
+                        );
                         // Continue with other servers instead of failing entirely
                     }
                 }
             }
         }
-        
+
         // If no clients were created successfully, return None
         if mcp_clients.is_empty() {
             eprintln!("Warning: No MCP servers could be started");
@@ -300,7 +301,7 @@ impl Config {
         }
 
         tool_set.set_clients(mcp_clients);
-        
+
         let tool_count = tool_set.tools().len();
         if tool_count > 0 {
             eprintln!("Initialized {} MCP tools", tool_count);
@@ -313,10 +314,10 @@ impl Config {
 }
 
 /// Helper to resolve environment variable references in configuration.
-/// 
+///
 /// If value starts with "env:", looks up the environment variable.
 /// Otherwise returns the value as-is.
-/// 
+///
 /// # Example
 /// * `"env:OPENAI_API_KEY"` -> Looks up OPENAI_API_KEY env var
 /// * `"sk-..."` -> Returns the literal string

@@ -1,5 +1,5 @@
 //! MCP tool management for function calling support
-//! 
+//!
 //! This module provides the infrastructure for integrating MCP (Model Context Protocol)
 //! tools with the LLM streaming client, enabling function calling capabilities.
 
@@ -18,13 +18,13 @@ use serde_json::Value;
 pub trait Tool: Send + Sync {
     /// Get the name of the tool
     fn name(&self) -> String;
-    
+
     /// Get the description of the tool
     fn description(&self) -> String;
-    
+
     /// Get the JSON schema for the tool's parameters
     fn parameters(&self) -> Value;
-    
+
     /// Execute the tool with the given arguments
     async fn call(&self, args: Value) -> Result<CallToolResult>;
 }
@@ -65,7 +65,7 @@ impl Tool for McpToolAdapter {
             Value::Object(map) => Some(map),
             _ => None,
         };
-        
+
         let call_result = self
             .server
             .call_tool(CallToolRequestParam {
@@ -105,7 +105,7 @@ impl ToolSet {
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
         self.tools.values().cloned().collect()
     }
-    
+
     /// Check if any tools are available
     pub fn has_tools(&self) -> bool {
         !self.tools.is_empty()

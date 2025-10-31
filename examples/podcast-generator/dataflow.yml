@@ -22,8 +22,9 @@ nodes:
       - segment_complete
       - log
     env:
-      VOICE_NAME: "Luo Xiang"
+      VOICE_NAME: "Zhao Daniu"
       TEXT_LANG: "zh"
+      SPEED_FACTOR: "1.0"
       PRIMESPEECH_MODEL_DIR: "$HOME/.dora/models/primespeech"
       LOG_LEVEL: "INFO"
 
@@ -40,6 +41,7 @@ nodes:
     env:
       VOICE_NAME: "Doubao"
       TEXT_LANG: "zh"
+      SPEED_FACTOR: "0.5"
       PRIMESPEECH_MODEL_DIR: "$HOME/.dora/models/primespeech"
       LOG_LEVEL: "INFO"
 
@@ -49,8 +51,12 @@ nodes:
     outputs:
       - log
     inputs:
-      daniu_audio: primespeech-daniu/audio
-      yifan_audio: primespeech-yifan/audio
+      daniu_audio:
+        source: primespeech-daniu/audio
+        queue_size: 1000
+      yifan_audio:
+        source: primespeech-yifan/audio
+        queue_size: 1000
       daniu_segment_complete: primespeech-daniu/segment_complete
       yifan_segment_complete: primespeech-yifan/segment_complete
       script_complete: script-segmenter/script_complete

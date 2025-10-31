@@ -31,7 +31,10 @@ class PrimeSpeechConfig:
     TOP_K = int(os.getenv("TOP_K", "3"))  # Lower for faster inference
     TOP_P = float(os.getenv("TOP_P", "0.95"))
     TEMPERATURE = float(os.getenv("TEMPERATURE", "0.8"))  # Lower for consistency
-    SPEED_FACTOR = float(os.getenv("SPEED_FACTOR", "1.0"))
+    SPEED_FACTOR_OVERRIDE: Optional[str] = os.getenv("SPEED_FACTOR")
+    SPEED_FACTOR: Optional[float] = (
+        float(SPEED_FACTOR_OVERRIDE) if SPEED_FACTOR_OVERRIDE is not None else None
+    )
     BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
     SEED = int(os.getenv("SEED", "233333"))
     
@@ -75,8 +78,8 @@ VOICE_CONFIGS = {
         "repository": "MoYoYoTech/tone-models",
         "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
         "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
-        "reference_audio": "ref_audios/doubao_ref_mix.wav",
-        "prompt_text": "最近工作太忙了，天天都在赶deadline，真希望能有个long vacation, 好好放松一下。",
+        "reference_audio": "ref_audios/doubao_ref_mix_new.wav",
+        "prompt_text": "这家resturant的steak很有名，但是vegetable salad的price有点贵",
         "text_lang": "zh",
         "prompt_lang": "zh",
         "speed_factor": 1.1,
