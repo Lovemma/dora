@@ -1,7 +1,7 @@
 use eyre::{Result, eyre};
-use reqwest_eventsource::{EventSource, Event};
-use serde::Deserialize;
 use futures::StreamExt;
+use reqwest_eventsource::{Event, EventSource};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -43,22 +43,23 @@ pub struct DeltaFunctionCall {
     pub arguments: Option<String>,
 }
 
+use outfox_openai::spec::{ChatCompletionMessageToolCall, ChatCompletionToolType, FunctionCall};
 /// Parse Server-Sent Events (SSE) stream from OpenAI-compatible APIs.
-/// 
+///
 /// This function handles the streaming response format used by OpenAI's chat
 /// completion API when `stream: true` is set. It parses SSE events, extracts
 /// content chunks, and calls the provided callback for each chunk.
-/// 
+///
 /// # Arguments
 /// * `client` - HTTP client for making the request
 /// * `url` - API endpoint URL
 /// * `api_key` - API authentication key
 /// * `request_body` - JSON request body with streaming enabled
 /// * `on_chunk` - Callback function called for each text chunk
-/// 
+///
 /// # Returns
 /// * `Result<String>` - The complete accumulated response text
-/// 
+///
 /// # Example Event Format
 /// ```text
 /// data: {"choices":[{"delta":{"content":"Hello"}}]}
@@ -66,7 +67,6 @@ pub struct DeltaFunctionCall {
 /// data: [DONE]
 /// ```
 use std::collections::HashMap;
-use outfox_openai::spec::{ChatCompletionMessageToolCall, ChatCompletionToolType, FunctionCall};
 
 /// Accumulates tool call deltas during streaming
 #[derive(Default)]
@@ -85,15 +85,15 @@ struct ToolCallBuilder {
 impl ToolCallAccumulator {
     pub fn add_delta(&mut self, delta: &DeltaToolCall) {
         let builder = self.tool_calls.entry(delta.index).or_default();
-        
+
         if let Some(id) = &delta.id {
             builder.id = Some(id.clone());
         }
-        
+
         if let Some(r#type) = &delta.r#type {
             builder.r#type = Some(r#type.clone());
         }
-        
+
         if let Some(function) = &delta.function {
             if let Some(name) = &function.name {
                 builder.function_name = Some(name.clone());
@@ -103,13 +103,14 @@ impl ToolCallAccumulator {
             }
         }
     }
-    
+
     pub fn build_tool_calls(self) -> Vec<ChatCompletionMessageToolCall> {
         let mut tool_calls = Vec::new();
-        
+
         for (_, builder) in self.tool_calls {
-            if let (Some(id), Some(_), Some(name)) = 
-                (builder.id, builder.r#type, builder.function_name) {
+            if let (Some(id), Some(_), Some(name)) =
+                (builder.id, builder.r#type, builder.function_name)
+            {
                 tool_calls.push(ChatCompletionMessageToolCall {
                     id,
                     kind: ChatCompletionToolType::Function,
@@ -120,10 +121,10 @@ impl ToolCallAccumulator {
                 });
             }
         }
-        
+
         tool_calls
     }
-    
+
     pub fn has_tool_calls(&self) -> bool {
         !self.tool_calls.is_empty()
     }
@@ -148,7 +149,7 @@ where
     let mut event_source = EventSource::new(request)?;
     let mut accumulated_content = String::new();
     let mut tool_accumulator = ToolCallAccumulator::default();
-    
+
     while let Some(event) = event_source.next().await {
         match event {
             Ok(Event::Open) => {
@@ -156,13 +157,13 @@ where
             }
             Ok(Event::Message(msg)) => {
                 let data = msg.data;
-                
+
                 // Check for end of stream
                 if data == "[DONE]" {
                     eprintln!("[SSE] Stream complete");
                     break;
                 }
-                
+
                 // Parse the JSON chunk
                 match serde_json::from_str::<StreamChunk>(&data) {
                     Ok(chunk) => {
@@ -174,7 +175,7 @@ where
                                     on_chunk(content.clone())?;
                                 }
                             }
-                            
+
                             // Handle tool calls
                             if let Some(tool_calls) = &choice.delta.tool_calls {
                                 for delta_call in tool_calls {
@@ -194,13 +195,13 @@ where
             }
         }
     }
-    
+
     // Build tool calls if any were accumulated
     let tool_calls = if tool_accumulator.has_tool_calls() {
         Some(tool_accumulator.build_tool_calls())
     } else {
         None
     };
-    
+
     Ok((accumulated_content, tool_calls))
 }

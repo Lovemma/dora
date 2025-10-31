@@ -161,6 +161,8 @@ def main():
     total_duration = 0.0
 
     for event in node:
+        send_log(node, "DEBUG", f"EVENT: type={event['type']}, id={event.get('id', 'N/A')}", config.LOG_LEVEL)
+
         if event["type"] == "INPUT":
             input_id = event["id"]
 

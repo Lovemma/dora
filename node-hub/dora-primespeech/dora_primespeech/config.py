@@ -3,9 +3,9 @@ Configuration for PrimeSpeech TTS node.
 """
 
 import os
-import typing
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Dict, Any
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -31,7 +31,10 @@ class PrimeSpeechConfig:
     TOP_K = int(os.getenv("TOP_K", "3"))  # Lower for faster inference
     TOP_P = float(os.getenv("TOP_P", "0.95"))
     TEMPERATURE = float(os.getenv("TEMPERATURE", "0.8"))  # Lower for consistency
-    SPEED_FACTOR = float(os.getenv("SPEED_FACTOR", "1.0"))
+    SPEED_FACTOR_OVERRIDE: Optional[str] = os.getenv("SPEED_FACTOR")
+    SPEED_FACTOR: Optional[float] = (
+        float(SPEED_FACTOR_OVERRIDE) if SPEED_FACTOR_OVERRIDE is not None else None
+    )
     BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
     SEED = int(os.getenv("SEED", "233333"))
     
@@ -76,7 +79,7 @@ VOICE_CONFIGS = {
         "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
         "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
         "reference_audio": "ref_audios/doubao_ref_mix_new.wav",
-        "prompt_text": "这家 restaurant 的 steak 很有名，但 vegetable salad 的 price 有一点贵。",
+        "prompt_text": "这家resturant的steak很有名，但是vegetable salad的price有点贵",
         "text_lang": "zh",
         "prompt_lang": "zh",
         "speed_factor": 1.1,

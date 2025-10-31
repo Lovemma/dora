@@ -42,7 +42,7 @@ VOICE_CONFIGS = {
         "repository": "MoYoYoTech/tone-models",
         "gpt_weights": "GPT_weights/doubao_best_gpt.ckpt",
         "sovits_weights": "SoVITS_weights/doubao_best_sovits.pth",
-        "reference_audio": "ref_audios/doubao_ref_mix.wav",
+        "reference_audio": "ref_audios/doubao_ref_mix_new.wav",
         "text_lang": "zh"
     },
     "Luo Xiang": {
@@ -128,6 +128,20 @@ VOICE_CONFIGS = {
         "sovits_weights": "SoVITS_weights/trump_best_sovits.pth",
         "reference_audio": "ref_audios/trump_ref.wav",
         "text_lang": "en"
+    },
+    "Daniu": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "GPT_weights/dnz_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/dnz_best_sovits.pth",
+        "reference_audio": "ref_audios/dnz_ref.wav",
+        "text_lang": "zh"
+    },
+    "Yifan": {
+        "repository": "MoYoYoTech/tone-models",
+        "gpt_weights": "GPT_weights/yfc_best_gpt.ckpt",
+        "sovits_weights": "SoVITS_weights/yfc_best_sovits.pth",
+        "reference_audio": "ref_audios/yfc_ref.wav",
+        "text_lang": "zh"
     }
 }
 

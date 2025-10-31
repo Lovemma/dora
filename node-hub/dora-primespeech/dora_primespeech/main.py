@@ -145,11 +145,25 @@ def main():
         send_log(node, "DEBUG", f"Validated PROMPT_LANG: '{validated_prompt_lang}'", config.LOG_LEVEL)
     
     # Add inference parameters
+    effective_speed_factor = (
+        config.SPEED_FACTOR
+        if config.SPEED_FACTOR is not None
+        else voice_config.get("speed_factor", 1.0)
+    )
+
+    if config.SPEED_FACTOR is not None:
+        send_log(
+            node,
+            "INFO",
+            f"Overriding speed_factor via env to {effective_speed_factor}",
+            config.LOG_LEVEL,
+        )
+
     voice_config.update({
         "top_k": config.TOP_K,
         "top_p": config.TOP_P,
         "temperature": config.TEMPERATURE,
-        "speed_factor": config.SPEED_FACTOR,
+        "speed_factor": effective_speed_factor,
         "batch_size": config.BATCH_SIZE,
         "seed": config.SEED,
         "text_split_method": config.TEXT_SPLIT_METHOD,
@@ -175,6 +189,12 @@ def main():
     send_log(node, "INFO", f"Voice: {voice_name}", config.LOG_LEVEL)
     send_log(node, "INFO", f"Text Language: {voice_config.get('text_lang', 'auto')} (configured: {config.TEXT_LANG})", config.LOG_LEVEL)
     send_log(node, "INFO", f"Prompt Language: {voice_config.get('prompt_lang', 'auto')} (configured: {config.PROMPT_LANG})", config.LOG_LEVEL)
+
+    # Print to stdout for immediate visibility
+    speed_factor_value = voice_config.get('speed_factor')
+    print(f"[PRIMESPEECH SPEED_FACTOR] Voice: {voice_name}, Speed: {speed_factor_value}, Env Override: {config.SPEED_FACTOR_OVERRIDE}", flush=True)
+
+    send_log(node, "INFO", f"Speed Factor: {speed_factor_value} (env override: {config.SPEED_FACTOR_OVERRIDE is not None})", config.LOG_LEVEL)
     send_log(node, "INFO", f"Device: {config.DEVICE}", config.LOG_LEVEL)
 
     # Validate the final configuration

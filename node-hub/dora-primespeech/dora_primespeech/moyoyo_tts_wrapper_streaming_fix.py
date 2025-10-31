@@ -446,7 +446,7 @@ class StreamingMoYoYoTTSWrapper:
                 "ref_audio_path": self.ref_audio_path,
                 "prompt_text": self.prompt_text,
                 "prompt_lang": "zh",
-                "speed_factor": 1.1,
+                "speed_factor": speed,
                 "return_fragment": False,
                 **self.optimization_config
             }

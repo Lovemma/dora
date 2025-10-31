@@ -32,6 +32,9 @@ def get_node_icon(node_name):
         "script-segmenter": "📝",
         "primespeech-daniu": "🎤",
         "primespeech-yifan": "🎙️",
+        "minimax-daniu": "🎤",
+        "minimax-yifan": "🎙️",
+        "minimax-boyu": "🎧",
         "voice-output": "🔊"
     }
     return icons.get(node_name, "📦")
@@ -75,6 +78,14 @@ def main():
     """Main viewer loop"""
     node = Node("viewer")
 
+    speaker_map = {
+        "daniu": ("🎤", "大牛"),
+        "yifan": ("🎙️", "一帆"),
+        "boyu": ("🎧", "博宇"),
+    }
+
+    text_suffix = "_text"
+
     print("\n" + "="*70)
     print(f"{Colors.BOLD}🎙️ Podcast Generator Viewer{Colors.ENDC}")
     print("="*70)
@@ -91,13 +102,15 @@ def main():
                     print_log(log_data)
 
                 # Text segments being sent to TTS
-                elif input_id == "daniu_text":
-                    text = event["value"][0].as_py()
-                    print(f"{Colors.BOLD}[{format_timestamp()}]{Colors.ENDC} 🎤 {Colors.GREEN}大牛: {text}{Colors.ENDC}")
-
-                elif input_id == "yifan_text":
-                    text = event["value"][0].as_py()
-                    print(f"{Colors.BOLD}[{format_timestamp()}]{Colors.ENDC} 🎙️ {Colors.GREEN}一帆: {text}{Colors.ENDC}")
+                elif input_id.endswith(text_suffix):
+                    speaker_key = input_id[: -len(text_suffix)]
+                    if speaker_key in speaker_map:
+                        icon, speaker_name = speaker_map[speaker_key]
+                        text = event["value"][0].as_py()
+                        print(
+                            f"{Colors.BOLD}[{format_timestamp()}]{Colors.ENDC} {icon} "
+                            f"{Colors.GREEN}{speaker_name}: {text}{Colors.ENDC}"
+                        )
 
                 # Script completion
                 elif input_id == "script_complete":
